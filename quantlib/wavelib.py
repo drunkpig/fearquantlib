@@ -7,7 +7,7 @@ from futu import *
 from pandas import DataFrame
 from tushare.util.dateu import trade_cal
 
-from quantlib import config
+from quantlib.config import QuantConfig as config
 
 
 class KL_Period(object):
@@ -128,13 +128,13 @@ def n_trade_days_ago(n_trade_days, end_dt=today()):
     return start_date
 
 
-def prepare_csv_data(code_list, n_days=config.n_days_bar):
+def prepare_csv_data(code_list, n_days=config.n_days_bar_fetch):
     """
 
     :param code_list: 股票列表
     :return:
     """
-    quote_ctx = OpenQuoteContext(host=config.futuapi_address, port=config.futuapi_port)
+    quote_ctx = OpenQuoteContext(host=config.futu_api_ip, port=config.futu_api_port)
     for code in code_list:
         for _, ktype in K_LINE_TYPE.items():
             ret, df, page_req_key = quote_ctx.request_history_kline(code, start=n_trade_days_ago(n_days), end=today(),
@@ -149,7 +149,7 @@ def prepare_csv_data(code_list, n_days=config.n_days_bar):
     quote_ctx.close()
 
 
-def get_df_of_code(code, ktype=K_LINE_TYPE[KL_Period.KL_60], n_days=config.n_days_bar):
+def get_df_of_code(code, ktype=K_LINE_TYPE[KL_Period.KL_60], n_days=config.n_days_bar_fetch):
     """
 
     :param code:
@@ -157,7 +157,7 @@ def get_df_of_code(code, ktype=K_LINE_TYPE[KL_Period.KL_60], n_days=config.n_day
     :param n_days:
     :return:
     """
-    quote_ctx = OpenQuoteContext(host=config.futuapi_address, port=config.futuapi_port)
+    quote_ctx = OpenQuoteContext(host=config.futu_api_ip, port=config.futu_api_port)
     ret, df, page_req_key = quote_ctx.request_history_kline(code, start=n_trade_days_ago(n_days), end=today(),
                                                             ktype=ktype,
                                                             fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE, KL_FIELD.HIGH,
@@ -174,7 +174,7 @@ def df_file_name(stock_code, ktype):
     :param ktype:
     :return:
     """
-    prefix = config.g_config.DEV_MODEL
+    prefix = config.DEV_MODEL
     return f'data/{prefix}{stock_code}_{ktype}.csv'
 
 
