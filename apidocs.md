@@ -62,30 +62,30 @@ class WaveType(object): # bar的波峰波谷定义的常量
 ### API
 
 #### 技术指标
-1. MA
-2. MACD
+- MA
+- MACD
 
 #### 日期
-5. today
-6. n_days_ago
-7. n_trade_days_ago
+- today
+- n_days_ago
+- n_trade_days_ago
 
 #### 数据源获取
-8. prepare_csv_data 从富途获取code list的多周期原始数据并存在磁盘上
-9. get_df_of_code 获取一个code, 一个周期的原始数据并保存在磁盘上
+- prepare_csv_data 从富途获取code list的多周期原始数据并存在磁盘上
+- get_df_of_code 获取一个code, 一个周期的原始数据并保存在磁盘上
 
 #### 数据处理
-10. df_file_name 根据code和K线类型获得数据文件磁盘位置
-11. compute_df_bar 对传入的code列表利用准备好的数据(磁盘文件)分别计算出新df, df新生成字段包括：macd_bar, em_bar, macd_bar_rg_tag, em_bar_rg_tag。调用了__add_df_tags
-4. find_successive_bar_areas 对于传入的df, 寻找指定字段的 红色/绿色连续区域，并返回找到的红色和绿色区域数组，数组里每个元素是区域的开始和结束下标
-14. do_bar_wave_tag 对传入的一段连续区域寻找里面的波峰和波谷
-15. bottom_divergence_cnt 底部背离了多少次
-16. bar_green_wave_cnt 当前绿柱连续区域有多少个波峰
+- df_file_name 根据code和K线类型获得数据文件磁盘位置
+- compute_df_bar 对传入的code列表利用准备好的数据(磁盘文件)分别计算出新df, df新生成字段包括：macd_bar, em_bar, macd_bar_rg_tag, em_bar_rg_tag。调用了__add_df_tags
+- find_successive_bar_areas 对于传入的df, 寻找指定字段的 红色/绿色连续区域，并返回找到的红色和绿色区域数组，数组里每个元素是区域的开始和结束下标
+- do_bar_wave_tag 对传入的一段连续区域寻找里面的波峰和波谷
+- bottom_divergence_cnt 底部背离了多少次
+- bar_green_wave_cnt 当前绿柱连续区域有多少个波峰
 
-17. ma_distance 5周期和10周期线的距离占当前收盘价的百分点，返回4位小数
-19. resonance_cnt 2个df的共振次数
-20. is_macd_bar_reduce 当前一根绿柱是否变短了
-18. __get_last_successive_rg_area  获得最后一端某字段的g/r连续区域
-12. __add_df_tags  为某个字段加入r/g标签
-13. __ext_field 标签扩展字段，例如r/g字段
-3. __find_successive_areas 给一个数字，取出其中的连续区域，返回一个tuple list, tuple包含了连续区域开始和结束下标
+- ma_distance 5周期和10周期线的距离占当前收盘价的百分点，返回4位小数
+- resonance_cnt 2个df的共振次数
+- is_macd_bar_reduce 当前一根绿柱是否变短了
+- __get_last_successive_rg_area  获得最后一端某字段的g/r连续区域
+- __add_df_tags  为某个字段加入r/g标签
+- __ext_field 标签扩展字段，例如r/g字段
+- __find_successive_areas 给一个数字，取出其中的连续区域，返回一个tuple list, tuple包含了连续区域开始和结束下标
