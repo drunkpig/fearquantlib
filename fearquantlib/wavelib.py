@@ -7,7 +7,7 @@ from futu import *
 from pandas import DataFrame
 from tushare.util.dateu import trade_cal
 
-from quantlib.config import QuantConfig as config
+from fearquantlib.config import QuantConfig as config
 
 
 class KL_Period(object):
@@ -24,11 +24,11 @@ K_LINE_TYPE = {
 
 
 class WaveType(object):
-    RED_TOP = 2  # 红柱高峰
-    RED_BOTTOM = 1  # 红柱峰底
+    RED_PEAK = 2  # 红柱高峰
+    RED_VALLEY = 1  # 红柱峰底
 
-    GREEN_TOP = -2  # 绿柱波峰
-    GREEN_BOTTOM = -1  # 绿柱波底，乳沟深V的尖
+    GREEN_PEAK = -2  # 绿柱波峰
+    GREEN_VALLEy = -1  # 绿柱波底，乳沟深V的尖
 
 
 def MA(df, window, field, new_field):
@@ -278,12 +278,12 @@ def do_bar_wave_tag(raw_df: DataFrame, field, successive_bar_area, moutain_min_w
             # 现在连续的波段被分成了3段[s, i][i, j][j, e]
             # max_row_index 为波峰；i为波谷；j为波谷；'
             if j - i + 1 >= moutain_min_width:
-                df.at[max_row_index, tag_field] = WaveType.RED_TOP  # 打tag
+                df.at[max_row_index, tag_field] = WaveType.RED_PEAK  # 打tag
 
                 # 在下一个阶段中评估波峰波谷的变化度（是否是深V？）
                 # 一段连续的区间里可以产生多个波峰，但是波谷可能是重合的，这就要评估是否是深V，合并波峰
-                df.at[i, tag_field] = WaveType.RED_BOTTOM
-                df.at[j, tag_field] = WaveType.RED_BOTTOM
+                df.at[i, tag_field] = WaveType.RED_VALLEY
+                df.at[j, tag_field] = WaveType.RED_VALLEY
 
             # 剩下两段加入sub_area_list继续迭代
             if i - s + 1 >= moutain_min_width:
@@ -302,10 +302,12 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field):
     """
     field字段出现连续背离的个数,也既多重背离个数。
     背离必须是连续的。
+
     方法是：找出最后一段绿色bar_field（为了计算方便负值转为正值），value_field顶点的值，形成两个array
         找到bar_field中连续的下降段S_1，value_field中连续的下降段S_2。最后返回max(S_1,S_2)
         为什么选最大而不是最小呢？其实最小也可以，但里面涉及到一些模糊的东西，把阈值设大，然后还要
         辅助人工交易，如果取了min过于严格会误杀很多。
+
     :param df:
     :param bar_field: bar的field名字
     :param value_field:  价格
@@ -314,14 +316,14 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field):
     rg_tag_name = __ext_field(bar_field, ext='rg_tag')
     field_tag_name = __ext_field(bar_field)
     dftemp = __get_last_successive_rg_area(df, rg_tag_name, area='g') # 获得最后一段连续绿色区域
-    #TODO 对最后一段进行打tag，要做一定的预测行为
-    dftemp = df[(df[field_tag_name] != 0)  & (
-            df[field_tag_name] == WaveType.GREEN_TOP)].reset_index(drop=True)
+    # TODO 对最后一段进行打tag，要做一定的预测行为
+    dftemp = df[(df[field_tag_name] != 0) & (
+            df[field_tag_name] == WaveType.GREEN_PEAK)].reset_index(drop=True)
 
     bar_array = dftemp[bar_field].abs().array  # 最后一段连续绿色区域的bar
     val_array = dftemp[value_field].array
-    bar_successive_areas = __find_successive_areas(bar_array)
-    val_successive_areas = __find_successive_areas(val_array)
+    bar_successive_areas = __find_successive_areas(bar_array) # TODO bug, 返回了2个值
+    val_successive_areas = __find_successive_areas(val_array)# TODO bug, 返回了2个值
     # 然后找出来最大长度的区域，取min
     len1 = max(map(lambda p: p[1] - p[0] + 1, bar_successive_areas)) #TODO 这里有个bug，价格和bar都要下降，这里暂时没有做检查
     len2 = max(map(lambda p: p[1] - p[0] + 1, val_successive_areas))
@@ -339,7 +341,7 @@ def bar_green_wave_cnt(df: DataFrame, field='macd_bar'):
     """
     field_tag_name = __ext_field(field)
     last_idx = df[df[field_tag_name] > 0].tail(1).index[0]
-    wave_cnt = df[(df[field_tag_name] != 0) & (df.index > last_idx) & (df[field_tag_name] == WaveType.GREEN_TOP)].shape[
+    wave_cnt = df[(df[field_tag_name] != 0) & (df.index > last_idx) & (df[field_tag_name] == WaveType.GREEN_PEAK)].shape[
         0]  # TODO 这个地方有点问题，对于最后一段区域需要进一步处理，做一定预测。当前的GREEN_TOP在实时中不一定被打标
     return wave_cnt
 
@@ -348,11 +350,11 @@ def ma_distance(df: DataFrame):
     """
     计算(ma(5)-ma(10))/close，保留2位小数
     :param df:
-    :return:
+    :return: 0.0131 ， 0.0323， 保留4位小数
     """
     close_price = df.iat(df.shape[0] - 1, 'close')
     ma_gap = df.iat(df.shape[0] - 1, 'em_bar')
-    return round(abs(ma_gap / close_price), 2)
+    return round(abs(ma_gap / close_price), 4)
 
 
 def __get_last_successive_rg_area(df: DataFrame, rg_field_name, area='g'):
