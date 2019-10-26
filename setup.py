@@ -3,9 +3,12 @@ import setuptools
 with open("README.md", "r", encoding='utf-8') as fh:
     long_description = fh.read()
 
+with open("requirements.txt", 'r', encoding='utf-8') as f:
+    dependencies = f.readlines()
+
 setuptools.setup(
     name="fear-quant-lib",
-    version="0.0.1",
+    version="0.0.2",
     author="goldencold",
     author_email="xuchaoo@gmail.com",
     description="quant fear of market",
@@ -18,5 +21,7 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
+    install_requires=dependencies,
+
     python_requires='>=3.7',
 )
