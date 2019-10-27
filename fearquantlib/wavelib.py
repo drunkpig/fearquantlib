@@ -231,9 +231,11 @@ def __add_df_tags(df: DataFrame, field):
     color_tag_field = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     df[color_tag_field] = RG_AreaTag.GREEN  # 先设置绿色很重要，因为可以把过于段的过滤掉
 
-    for s,e in red_areas: # 过滤掉红色过小的区域
-        if e-s+1>config.moutain_min_width:
-            df.loc[s:e+1, color_tag_field] = RG_AreaTag.RED
+    for s, e in red_areas:  # 过滤掉红色过小的区域，这里还要注意一点，如果可被过滤的短区域存在最后，也是要保留成红色的
+        if e + 1 == df.shape[0]:
+            df.loc[s:e, color_tag_field] = RG_AreaTag.RED
+        elif e - s + 1 >= config.moutain_min_width:
+            df.loc[s:e, color_tag_field] = RG_AreaTag.RED
 
 
 def __ext_field(field_name, ext=RG_AreaTagFieldNameExt.BAR_TAG):
@@ -332,13 +334,15 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field):
     :return: 没有背离为0，
     """
     rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
-    field_tag_name = __ext_field(bar_field)
+    field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_TAG)
     dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
-    # TODO 对最后一段进行打tag，要做一定的预测行为
-    bar_array = dftemp[dftemp[field_tag_name]==WaveType.GREEN_PEAK][bar_field].abs().array  # 最后一段连续绿色区域的bar的顶点
-    val_array = dftemp[dftemp[field_tag_name]==WaveType.GREEN_PEAK][value_field].array
-    # bar_successive_areas = __find_successive_areas(bar_array)
-    # val_successive_areas = __find_successive_areas(val_array)
+    # 这一段连续区域里包含了被同化的不同色，需要对这部分对应的值进行处理，等于0是个办法
+    # 对应于底背离，应该是bar_field>0, 但是 颜色标记为G的那些，因为颜色全都是G，因此只需要
+    # 把bar_field>0的全都设置为0即可
+    dftemp.loc[dftemp[bar_field]>0, bar_field] = 0
+    # TODO 对最后一段进行打tag，要做一定的预测行为?绿峰一直在增长但背离的情况
+    bar_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][bar_field].abs().array  # 最后一段连续绿色区域的bar的顶点
+    val_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][value_field].array
     # # 然后找出来最大长度的区
     bar_desc = __max_successive_series_len(bar_array)
     val_desc = __max_successive_series_len(val_array)
@@ -367,7 +371,7 @@ def __max_successive_series_len(arr):
     return max_area_len
 
 
-def bar_green_wave_cnt(df: DataFrame, field='macd_bar'):
+def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar'):
     """
     在一段连续的绿柱子区间，当前的波峰是第几个
     方法是：从当前时间开始找到前面第一段连续绿柱，然后计算绿柱区间有几个波峰；
@@ -376,11 +380,11 @@ def bar_green_wave_cnt(df: DataFrame, field='macd_bar'):
     :param field:
     :return:  波峰个数, 默认1
     """
-    field_tag_name = __ext_field(field)
-    last_idx = df[df[field_tag_name] > 0].tail(1).index[0]
-    wave_cnt = \
-    df[(df[field_tag_name] != 0) & (df.index > last_idx) & (df[field_tag_name] == WaveType.GREEN_PEAK)].shape[
-        0]  # TODO 这个地方有点问题，对于最后一段区域需要进一步处理，做一定预测。当前的GREEN_TOP在实时中不一定被打标
+    field_tag_name= __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_TAG)
+    rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
+    dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
+    wave_cnt = dftemp[dftemp[field_tag_name]==WaveType.GREEN_PEAK].shape[0]
+    # TODO 这个地方有点问题，对于最后一段区域需要进一步处理，做一定预测。当前的GREEN_TOP在实时中不一定被打标
     return wave_cnt
 
 
@@ -403,7 +407,7 @@ def __get_last_successive_rg_area(df: DataFrame, rg_field_name, area=RG_AreaTag.
     :param area:
     :return: df
     """
-    last_idx = df[df[rg_field_name] != area].tail(1).index[0]
+    last_idx = df[df[rg_field_name] != area].tail(1).index[0]  # 红绿只抹平毛刺小区域，但是计算的实际值需要取出来之后做进一步处理
     dftemp = df[df.index > last_idx].copy().reset_index(drop=True)
 
     return dftemp
@@ -472,3 +476,5 @@ if __name__ == '__main__':
     df15 = do_compute_df_bar(df)
     ct = bottom_divergence_cnt(df15, "macd_bar", "close")
     print(ct)
+    gct = bar_green_wave_cnt(df15[:-4])
+    print(gct)
