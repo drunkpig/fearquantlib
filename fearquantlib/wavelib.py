@@ -380,6 +380,8 @@ def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar'):
     :param field:
     :return:  波峰个数, 默认1
     """
+    if df.shape[0]==0:
+        return 0
     field_tag_name= __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_TAG)
     rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
@@ -407,10 +409,13 @@ def __get_last_successive_rg_area(df: DataFrame, rg_field_name, area=RG_AreaTag.
     :param area:
     :return: df
     """
-    last_idx = df[df[rg_field_name] != area].tail(1).index[0]  # 红绿只抹平毛刺小区域，但是计算的实际值需要取出来之后做进一步处理
-    dftemp = df[df.index > last_idx].copy().reset_index(drop=True)
-
-    return dftemp
+    # TODO 全红或者全绿需要处理
+    if df[df[rg_field_name]!=area].shape[0]==0:
+        return df.copy().reset_index(drop=True)
+    else:
+        last_idx = df[df[rg_field_name] != area].tail(1).index[0]  # 红绿只抹平毛刺小区域，但是计算的实际值需要取出来之后做进一步处理
+        dftemp = df[df.index > last_idx].copy().reset_index(drop=True)
+        return dftemp
 
 
 def resonance_cnt(df1: DataFrame, df2: DataFrame, field):
@@ -428,7 +433,7 @@ def resonance_cnt(df1: DataFrame, df2: DataFrame, field):
                                           area=RG_AreaTag.GREEN)
     wave_1 = bar_green_wave_cnt(area1, field)
     wave_2 = bar_green_wave_cnt(area2, field)
-    return min(wave_1, wave_2)
+    return min(wave_1, wave_2)-1  # 2个波形成1个共振
 
 
 def is_macd_bar_reduce(df: DataFrame, field='macd_bar'):
