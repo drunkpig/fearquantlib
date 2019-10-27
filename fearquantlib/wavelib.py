@@ -474,7 +474,7 @@ if __name__ == '__main__':
     code = "SH.600703"
     df = get_df_of_code(code, "2019-09-20", "2019-10-21", KLType.K_30M)
     df15 = do_compute_df_bar(df)
-    ct = bottom_divergence_cnt(df15, "macd_bar", "close")
+    ct = bottom_divergence_cnt(df15[:-4], "macd_bar", "close")
     print(ct)
     gct = bar_green_wave_cnt(df15[:-4])
     print(gct)
