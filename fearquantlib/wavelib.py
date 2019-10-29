@@ -68,21 +68,7 @@ def MACD(df, field_name='close', quick_n=12, slow_n=26, dem_n=9):
     return diff, macdsignal, macd_bar
 
 
-def __find_successive_areas(arr):
-    """
-    值连续升序或者连续降序的段
-    :param arr: 下标index
-    :return:
-    """
-    successive_area = []
-    for k, g in groupby(enumerate(arr), lambda iv: iv[0] - iv[1]):
-        index_group = list(map(itemgetter(1), g))
-        successive_area.append((min(index_group), max(index_group)))
-
-    return successive_area
-
-
-def find_successive_bar_areas(df: DataFrame, field='bar'):
+def __find_successive_bar_areas(df: DataFrame, field='bar'):
     """
     这个地方不管宽度，只管找连续的区域
     改进的寻找连续区域算法；
@@ -95,10 +81,24 @@ def find_successive_bar_areas(df: DataFrame, field='bar'):
     # 第一步：把连续的同一颜色区域的index都放入一个数组
     arrays = [df[df[field] >= 0].index.array, df[df[field] <= 0].index.array]
     for arr in arrays:
-        successive_area = __find_successive_areas(arr)
+        successive_area = __do_find_successive_areas(arr)
         successive_areas.append(successive_area)
 
     return successive_areas[0], successive_areas[1]  # 分别是红色和绿色的区间
+
+
+def __do_find_successive_areas(arr):
+    """
+    值连续升序或者连续降序的段
+    :param arr: 下标index
+    :return:
+    """
+    successive_area = []
+    for k, g in groupby(enumerate(arr), lambda iv: iv[0] - iv[1]):
+        index_group = list(map(itemgetter(1), g))
+        successive_area.append((min(index_group), max(index_group)))
+
+    return successive_area
 
 
 def today():
@@ -142,10 +142,12 @@ def prepare_csv_data(code_list, n_days=config.n_days_bar_fetch):
     """
 
     :param code_list: 股票列表
-    :return:
+    :return:{code:[周期1，小周期2, 小周期3.。。]，}
     """
+    code_data_path = {}
     quote_ctx = OpenQuoteContext(host=config.futu_api_ip, port=config.futu_api_port)
     for code in code_list:
+        files = []
         for _, ktype in K_LINE_TYPE.items():
             ret, df, page_req_key = quote_ctx.request_history_kline(code, start=n_trade_days_ago(n_days), end=today(),
                                                                     ktype=ktype,
@@ -154,9 +156,13 @@ def prepare_csv_data(code_list, n_days=config.n_days_bar_fetch):
                                                                     max_count=1000)
             csv_file_name = df_file_name(code, ktype)
             df.to_csv(csv_file_name)
+            files.append(csv_file_name)
             time.sleep(3.1)  # 频率限制
+        code_data_path[code] = files
 
     quote_ctx.close()
+
+    return code_data_path
 
 
 def get_df_of_code(code, start_date, end_date, ktype=K_LINE_TYPE[KL_Period.KL_60]):
@@ -198,12 +204,12 @@ def compute_df_bar(code_list):
         for k, ktype in K_LINE_TYPE.items():
             csv_file_name = df_file_name(code, ktype)
             df = pd.read_csv(csv_file_name, index_col=0)
-            df = do_compute_df_bar(df)
+            df = __do_compute_df_bar(df)
             # TODO 这里还要把尾部，从最后一个1/-1之后的强行选出来一个顶、底。尾部一般由于数据少没有被打上tag，就要特殊处理
             df.to_csv(csv_file_name)
 
 
-def do_compute_df_bar(df):
+def __do_compute_df_bar(df):
     diff, dem, bar = MACD(df)
     df['macd_bar'] = bar  # macd
     df = MA(df, 5, 'close', 'ma5')
@@ -221,10 +227,10 @@ def __add_df_tags(df: DataFrame, field):
     :return:
     """
     tag_field_name = __ext_field(field)
-    red_areas, blue_areas = find_successive_bar_areas(df, field)
-    df_blue = do_bar_wave_tag(df, field, blue_areas, moutain_min_width=config.moutain_min_width)
+    red_areas, blue_areas = __find_successive_bar_areas(df, field)
+    df_blue = __do_bar_wave_tag(df, field, blue_areas, moutain_min_width=config.moutain_min_width)
     df_blue[tag_field_name] *= -1  # 因为计算都变为正值，所以绿柱子要乘以-1
-    df_red = do_bar_wave_tag(df, field, red_areas, moutain_min_width=config.moutain_min_width)
+    df_red = __do_bar_wave_tag(df, field, red_areas, moutain_min_width=config.moutain_min_width)
     df[tag_field_name] = df_red[tag_field_name] | df_blue[tag_field_name]
 
     # 连续的区域用r, g区分，方便后续计算
@@ -247,7 +253,7 @@ def __ext_field(field_name, ext=RG_AreaTagFieldNameExt.BAR_TAG):
     return f'_{field_name}_{ext}'
 
 
-def do_bar_wave_tag(raw_df: DataFrame, field, successive_bar_area, moutain_min_width=5):
+def __do_bar_wave_tag(raw_df: DataFrame, field, successive_bar_area, moutain_min_width=5):
     """
     这里找波峰和波谷，找谷底的目的是为了测量波峰/谷的斜率
     # TODO 试一下FFT寻找波谷波峰
@@ -390,7 +396,7 @@ def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar'):
     return wave_cnt
 
 
-def ma_distance(df: DataFrame):
+def get_current_ma_distance(df: DataFrame):
     """
     计算(ma(5)-ma(10))/close，保留2位小数
     :param df:
@@ -478,7 +484,7 @@ if __name__ == '__main__':
 
     code = "SH.600703"
     df = get_df_of_code(code, "2019-09-20", "2019-10-21", KLType.K_30M)
-    df15 = do_compute_df_bar(df)
+    df15 = __do_compute_df_bar(df)
     ct = bottom_divergence_cnt(df15[:-4], "macd_bar", "close")
     print(ct)
     gct = bar_green_wave_cnt(df15[:-4])

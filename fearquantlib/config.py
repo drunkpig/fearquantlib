@@ -1,7 +1,7 @@
 import os
 import sys
-from configparser import ConfigParser
 import logging
+import json
 
 logger = logging.getLogger()
 
@@ -17,29 +17,63 @@ class QuantConfig(object):
     moutain_min_width = 5
     n_days_bar_fetch = 30  # 向前看多少天的60分数据
 
+    def __init__(self):
+        config_file = self.__get_config_file()
+        with open(config_file, 'r', encoding='utf-8') as f:
+            obj = json.load(f)
+            env = obj['application_env']
+            self.dev_model = env['dev_model']
+            self.futu_api_ip = env['futu_api_ip']
+            self.futu_api_port = env['futu_api_port']
 
-"""
-配置首先从~/.fear-quant/config.ini读取
-其次读取运行时目录下config.ini
-如果都不存在报错，如果两个都存在，只使用前者
-"""
-home_config_file = os.path.expanduser('~/.fear-quant/config.ini')
-runtime_config_file = os.path.dirname(os.path.realpath(sys.argv[0]))  # 运行时目录
+            self.periods = []
+            self.periods_config = {}
+            parameters = obj['parameters']
+            periods = parameters['periods']
+            for p in periods:
+                periods_cfg = parameters[p]
+                if periods_cfg['enable']:
+                    self.periods.append(p)
+                    wave_scan_max_gap=periods_cfg['wave_scan_max_gap']
+                    moutain_min_width=periods_cfg['moutain_min_width']
+                    n_days_bar_fetch= periods_cfg['n_days_bar_fetch']
+                    self.periods_config[p] = {"wave_scan_max_gap":wave_scan_max_gap, "moutain_min_width":moutain_min_width,"n_days_bar_fetch":n_days_bar_fetch}
 
-if os.path.exists(home_config_file):
-    config_file = home_config_file
-elif os.path.exists(runtime_config_file):
-    config_file = runtime_config_file
-else:
-    logger.error("没有找到配置文件")
-    raise Exception("没有找到配置文件")
+    @staticmethod
+    def __get_config_file():
+        """
+                配置文件采用json格式，
+                搜索顺序如下：
+                1）命令行第一个参数里找，
+                2）~/.fear-quant/config.ini读取
+                3）运行时目录下config.ini
+                直到遇到第一个就启用这个配置，同时忽略其他配置文件。如果没有发现配置文件则报错退出。
+                """
+        if len(sys.argv)>=2:
+            cmd_config_file = sys.argv[1]
+        else:
+            cmd_config_file = None
+        home_config_file = os.path.expanduser('~/.fear-quant/config.json')
+        runtime_config_file = os.path.dirname(os.path.realpath(sys.argv[0]))  # 运行时目录
+        runtime_config_file = f"{runtime_config_file}/config.json"
 
-cfg = ConfigParser()
-cfg.read(config_file, encoding="utf-8")
-QuantConfig.DEV_MODEL = str(cfg.get("application_env", 'dev_model'))
-QuantConfig.futu_api_ip = str(cfg.get("application_env", 'futu_api_ip'))
-QuantConfig.futu_api_port = cfg.getint("application_env", 'futu_api_port')
+        if cmd_config_file and os.path.exists(cmd_config_file):
+            config_file = cmd_config_file
+            logger.info("使用命令行配置文件")
+        elif os.path.exists(home_config_file):
+            config_file = home_config_file
+            logger.info("使用家目录下配置文件")
+        elif os.path.exists(runtime_config_file):
+            config_file = runtime_config_file
+            logger.info("使用工程目录下配置文件")
+        else:
+            logger.error("没有找到配置文件")
+            raise Exception("没有找到配置文件")
 
-QuantConfig.wave_scan_max_gap = cfg.getint("parameters", 'wave_scan_max_gap')
-QuantConfig.moutain_min_width = cfg.getint("parameters", 'moutain_min_width')
-QuantConfig.n_days_bar_fetch = cfg.getint("parameters", 'n_days_bar_fetch')
+        return config_file
+
+
+if __name__=="__main__":
+    cfg = QuantConfig()
+    print(cfg.periods)
+
