@@ -7,7 +7,9 @@ from futu import *
 from pandas import DataFrame
 from tushare.util.dateu import trade_cal
 
-from fearquantlib.config import QuantConfig as config
+from fearquantlib.config import QuantConfig
+
+_config = QuantConfig()
 
 
 class KL_Period(object):
@@ -138,17 +140,19 @@ def n_trade_days_ago(n_trade_days, end_dt=today()):
     return start_date
 
 
-def prepare_csv_data(code_list, n_days=config.n_days_bar_fetch):
+def prepare_csv_data(code_list, n_days=_config.n_days_bar_fetch):
     """
 
     :param code_list: 股票列表
     :return:{code:[周期1，小周期2, 小周期3.。。]，}
     """
     code_data_path = {}
-    quote_ctx = OpenQuoteContext(host=config.futu_api_ip, port=config.futu_api_port)
+    quote_ctx = OpenQuoteContext(host=_config.futu_api_ip, port=_config.futu_api_port)
     for code in code_list:
         files = []
-        for _, ktype in K_LINE_TYPE.items():
+        # for _, ktype in K_LINE_TYPE.items():
+        for k in _config.periods:
+            ktype = K_LINE_TYPE[k]
             ret, df, page_req_key = quote_ctx.request_history_kline(code, start=n_trade_days_ago(n_days), end=today(),
                                                                     ktype=ktype,
                                                                     fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE,
@@ -173,7 +177,7 @@ def get_df_of_code(code, start_date, end_date, ktype=K_LINE_TYPE[KL_Period.KL_60
     :param n_days:
     :return:
     """
-    quote_ctx = OpenQuoteContext(host=config.futu_api_ip, port=config.futu_api_port)
+    quote_ctx = OpenQuoteContext(host=_config.futu_api_ip, port=_config.futu_api_port)
     ret, df, page_req_key = quote_ctx.request_history_kline(code, start=start_date, end=end_date,
                                                             ktype=ktype,
                                                             fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE, KL_FIELD.HIGH,
@@ -190,7 +194,7 @@ def df_file_name(stock_code, ktype):
     :param ktype:
     :return:
     """
-    prefix = config.DEV_MODEL
+    prefix = _config.dev_model
     return f'data/{prefix}{stock_code}_{ktype}.csv'
 
 
@@ -201,36 +205,38 @@ def compute_df_bar(code_list):
     :return:
     """
     for code in code_list:
-        for k, ktype in K_LINE_TYPE.items():
+        for k in _config.periods:  # 这里面的周期从大到小排列，并且可在配置里enable/disable
+            ktype = K_LINE_TYPE[k]
             csv_file_name = df_file_name(code, ktype)
             df = pd.read_csv(csv_file_name, index_col=0)
-            df = __do_compute_df_bar(df)
+            df = __do_compute_df_bar(df, k) # K 是配置文件里的["KL_60","KL_30", "KL_15"] 之一
             # TODO 这里还要把尾部，从最后一个1/-1之后的强行选出来一个顶、底。尾部一般由于数据少没有被打上tag，就要特殊处理
             df.to_csv(csv_file_name)
 
 
-def __do_compute_df_bar(df):
+def __do_compute_df_bar(df, k_period):
     diff, dem, bar = MACD(df)
     df['macd_bar'] = bar  # macd
     df = MA(df, 5, 'close', 'ma5')
     df = MA(df, 10, 'close', 'ma10')
     df['em_bar'] = (df['ma5'] - df['ma10']).apply(lambda val: round(val, 2))  # 均线
-    __add_df_tags(df, "macd_bar")  # 顶部、谷底、连续区域打标r/g
-    __add_df_tags(df, "em_bar")  # r/g
+    __add_df_tags(df, "macd_bar", k_period)  # 顶部、谷底、连续区域打标r/g
+    __add_df_tags(df, "em_bar", k_period)  # r/g
     return df
 
 
-def __add_df_tags(df: DataFrame, field):
+def __add_df_tags(df: DataFrame, field, k_peroid):
     """
     field 的连续区域以及顶底
     :param df:
     :return:
     """
+    moutain_min_width = _config.periods_config[k_peroid]['moutain_min_width']
     tag_field_name = __ext_field(field)
     red_areas, blue_areas = __find_successive_bar_areas(df, field)
-    df_blue = __do_bar_wave_tag(df, field, blue_areas, moutain_min_width=config.moutain_min_width)
+    df_blue = __do_bar_wave_tag(df, field, blue_areas, moutain_min_width=moutain_min_width)
     df_blue[tag_field_name] *= -1  # 因为计算都变为正值，所以绿柱子要乘以-1
-    df_red = __do_bar_wave_tag(df, field, red_areas, moutain_min_width=config.moutain_min_width)
+    df_red = __do_bar_wave_tag(df, field, red_areas, moutain_min_width=moutain_min_width)
     df[tag_field_name] = df_red[tag_field_name] | df_blue[tag_field_name]
 
     # 连续的区域用r, g区分，方便后续计算
@@ -240,7 +246,7 @@ def __add_df_tags(df: DataFrame, field):
     for s, e in red_areas:  # 过滤掉红色过小的区域，这里还要注意一点，如果可被过滤的短区域存在最后，也是要保留成红色的
         if e + 1 == df.shape[0]:
             df.loc[s:e, color_tag_field] = RG_AreaTag.RED
-        elif e - s + 1 >= config.moutain_min_width:
+        elif e - s + 1 >= moutain_min_width:
             df.loc[s:e, color_tag_field] = RG_AreaTag.RED
 
 
@@ -345,7 +351,7 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field):
     # 这一段连续区域里包含了被同化的不同色，需要对这部分对应的值进行处理，等于0是个办法
     # 对应于底背离，应该是bar_field>0, 但是 颜色标记为G的那些，因为颜色全都是G，因此只需要
     # 把bar_field>0的全都设置为0即可
-    dftemp.loc[dftemp[bar_field]>0, bar_field] = 0
+    dftemp.loc[dftemp[bar_field] > 0, bar_field] = 0
     # TODO 对最后一段进行打tag，要做一定的预测行为?绿峰一直在增长但背离的情况
     bar_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][bar_field].abs().array  # 最后一段连续绿色区域的bar的顶点
     val_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][value_field].array
@@ -386,12 +392,12 @@ def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar'):
     :param field:
     :return:  波峰个数, 默认1
     """
-    if df.shape[0]==0:
+    if df.shape[0] == 0:
         return 0
-    field_tag_name= __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_TAG)
+    field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_TAG)
     rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
-    wave_cnt = dftemp[dftemp[field_tag_name]==WaveType.GREEN_PEAK].shape[0]
+    wave_cnt = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK].shape[0]
     # TODO 这个地方有点问题，对于最后一段区域需要进一步处理，做一定预测。当前的GREEN_TOP在实时中不一定被打标
     return wave_cnt
 
@@ -416,7 +422,7 @@ def __get_last_successive_rg_area(df: DataFrame, rg_field_name, area=RG_AreaTag.
     :return: df
     """
     # TODO 全红或者全绿需要处理
-    if df[df[rg_field_name]!=area].shape[0]==0:
+    if df[df[rg_field_name] != area].shape[0] == 0:
         return df.copy().reset_index(drop=True)
     else:
         last_idx = df[df[rg_field_name] != area].tail(1).index[0]  # 红绿只抹平毛刺小区域，但是计算的实际值需要取出来之后做进一步处理
@@ -439,10 +445,10 @@ def resonance_cnt(df1: DataFrame, df2: DataFrame, field):
                                           area=RG_AreaTag.GREEN)
     wave_1 = bar_green_wave_cnt(area1, field)
     wave_2 = bar_green_wave_cnt(area2, field)
-    return min(wave_1, wave_2)-1  # 2个波形成1个共振
+    return min(wave_1, wave_2) - 1  # 2个波形成1个共振
 
 
-def is_macd_bar_reduce(df: DataFrame, field='macd_bar'):
+def is_macd_bar_reduce(df: DataFrame, field='macd_bar', k_period=_config.periods[0]):
     """
     macd 绿柱子第一根减少出现，不能减少太剧烈，前面的绿色柱子不能太少
     前提是：最后一段柱子必须是绿色的
@@ -450,13 +456,13 @@ def is_macd_bar_reduce(df: DataFrame, field='macd_bar'):
     :param field:
     :return:
     """
-    field_tag_name = __ext_field(field)
-    last_idx = df[df[field_tag_name] == RG_AreaTag.RED].tail(1).index[0]  # 最后一个红柱的index
+    field_rg_tag_name = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
+    last_idx = df[df[field_rg_tag_name] == RG_AreaTag.RED].tail(1).index[0]  # 最后一个红柱的index
     if last_idx + 1 == df.shape[0]:  # 红柱子是最后一个，没有出绿柱
         return False
     else:
         green_bar_len = df[last_idx + 1:].shape[0]
-        if green_bar_len > math.ceil(config.moutain_min_width / 2):
+        if green_bar_len > math.ceil(_config.periods_config[k_period]['moutain_min_width'] / 2):
             cur_bar_len = df.iloc[-1][field]
             pre_bar_1_len = df.iloc[-2][field]
             pre_bar_2_len = df.iloc[-3][field]

@@ -10,13 +10,6 @@ class QuantConfig(object):
     """
 
     """
-    DEV_MODEL = 'dev_'
-    futu_api_ip = 'localhost'
-    futu_api_port = 11111
-    wave_scan_max_gap = 3  # 扫描波峰时最大跳跃间隔
-    moutain_min_width = 5
-    n_days_bar_fetch = 30  # 向前看多少天的60分数据
-
     def __init__(self):
         config_file = self.__get_config_file()
         with open(config_file, 'r', encoding='utf-8') as f:
@@ -29,6 +22,7 @@ class QuantConfig(object):
             self.periods = []
             self.periods_config = {}
             parameters = obj['parameters']
+            self.n_days_bar_fetch = parameters['n_days_bar_fetch']
             periods = parameters['periods']
             for p in periods:
                 periods_cfg = parameters[p]
@@ -36,8 +30,7 @@ class QuantConfig(object):
                     self.periods.append(p)
                     wave_scan_max_gap=periods_cfg['wave_scan_max_gap']
                     moutain_min_width=periods_cfg['moutain_min_width']
-                    n_days_bar_fetch= periods_cfg['n_days_bar_fetch']
-                    self.periods_config[p] = {"wave_scan_max_gap":wave_scan_max_gap, "moutain_min_width":moutain_min_width,"n_days_bar_fetch":n_days_bar_fetch}
+                    self.periods_config[p] = {"wave_scan_max_gap":wave_scan_max_gap, "moutain_min_width":moutain_min_width}
 
     @staticmethod
     def __get_config_file():
