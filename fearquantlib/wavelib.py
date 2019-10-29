@@ -140,12 +140,17 @@ def n_trade_days_ago(n_trade_days, end_dt=today()):
     return start_date
 
 
-def prepare_csv_data(code_list, n_days=_config.n_days_bar_fetch):
+def prepare_csv_data(code_list, start_date=None, end_date=None,  n_days=_config.n_days_bar_fetch):
     """
 
     :param code_list: 股票列表
     :return:{code:[周期1，小周期2, 小周期3.。。]，}
     """
+    if start_date is None:
+        start_date = n_trade_days_ago(n_days)
+    if end_date is None:
+        end_date = today()
+
     code_data_path = {}
     quote_ctx = OpenQuoteContext(host=_config.futu_api_ip, port=_config.futu_api_port)
     for code in code_list:
@@ -153,7 +158,7 @@ def prepare_csv_data(code_list, n_days=_config.n_days_bar_fetch):
         # for _, ktype in K_LINE_TYPE.items():
         for k in _config.periods:
             ktype = K_LINE_TYPE[k]
-            ret, df, page_req_key = quote_ctx.request_history_kline(code, start=n_trade_days_ago(n_days), end=today(),
+            ret, df, page_req_key = quote_ctx.request_history_kline(code, start=start_date, end=end_date,
                                                                     ktype=ktype,
                                                                     fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE,
                                                                             KL_FIELD.HIGH, KL_FIELD.LOW],
