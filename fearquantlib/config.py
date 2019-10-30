@@ -5,6 +5,13 @@ import json
 
 logger = logging.getLogger()
 
+# 周、天、60分等周期（交易时间）等于多少个5分钟单位的一个换算表
+timeConvTable = {
+    "KL_60" : 12,
+    "KL_30" : 6,
+    "KL_15" : 3,
+}
+
 
 class QuantConfig(object):
     """

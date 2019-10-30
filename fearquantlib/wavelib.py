@@ -7,7 +7,7 @@ from futu import *
 from pandas import DataFrame
 from tushare.util.dateu import trade_cal
 
-from fearquantlib.config import QuantConfig
+from fearquantlib.config import QuantConfig,timeConvTable
 
 _config = QuantConfig()
 
@@ -140,7 +140,7 @@ def n_trade_days_ago(n_trade_days, end_dt=today()):
     return start_date
 
 
-def prepare_csv_data(code_list, start_date=None, end_date=None,  n_days=_config.n_days_bar_fetch):
+def prepare_csv_data(code_list, start_date=None, end_date=None, n_days=_config.n_days_bar_fetch, timeUnitDelta=0):
     """
 
     :param code_list: 股票列表
@@ -155,7 +155,6 @@ def prepare_csv_data(code_list, start_date=None, end_date=None,  n_days=_config.
     quote_ctx = OpenQuoteContext(host=_config.futu_api_ip, port=_config.futu_api_port)
     for code in code_list:
         files = []
-        # for _, ktype in K_LINE_TYPE.items():
         for k in _config.periods:
             ktype = K_LINE_TYPE[k]
             ret, df, page_req_key = quote_ctx.request_history_kline(code, start=start_date, end=end_date,
@@ -164,7 +163,10 @@ def prepare_csv_data(code_list, start_date=None, end_date=None,  n_days=_config.
                                                                             KL_FIELD.HIGH, KL_FIELD.LOW],
                                                                     max_count=1000)
             csv_file_name = df_file_name(code, ktype)
-            df.to_csv(csv_file_name)
+            if timeUnitDelta>=0:
+                df.to_csv(csv_file_name)
+            else:
+                df[:timeUnitDelta//timeConvTable[k]].to_csv(csv_file_name)
             files.append(csv_file_name)
             time.sleep(3.1)  # 频率限制
         code_data_path[code] = files
@@ -214,7 +216,7 @@ def compute_df_bar(code_list):
             ktype = K_LINE_TYPE[k]
             csv_file_name = df_file_name(code, ktype)
             df = pd.read_csv(csv_file_name, index_col=0)
-            df = __do_compute_df_bar(df, k) # K 是配置文件里的["KL_60","KL_30", "KL_15"] 之一
+            df = __do_compute_df_bar(df, k)  # K 是配置文件里的["KL_60","KL_30", "KL_15"] 之一
             # TODO 这里还要把尾部，从最后一个1/-1之后的强行选出来一个顶、底。尾部一般由于数据少没有被打上tag，就要特殊处理
             df.to_csv(csv_file_name)
 
