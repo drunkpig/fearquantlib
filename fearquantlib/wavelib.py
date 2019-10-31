@@ -7,7 +7,7 @@ from futu import *
 from pandas import DataFrame
 from tushare.util.dateu import trade_cal
 
-from fearquantlib.config import QuantConfig,timeConvTable
+from fearquantlib.config import QuantConfig, timeConvTable
 
 _config = QuantConfig()
 
@@ -26,7 +26,7 @@ K_LINE_TYPE = {
 
 
 class RG_AreaTagFieldNameExt(object):
-    BAR_TAG = 'tag'
+    BAR_WAVE_TAG = 'tag'
     RG_TAG = 'rg_tag'
 
 
@@ -40,7 +40,7 @@ class WaveType(object):
     RED_VALLEY = 1  # 红柱峰底
 
     GREEN_PEAK = -2  # 绿柱波峰
-    GREEN_VALLEy = -1  # 绿柱波底，乳沟深V的尖
+    GREEN_VALLEY = -1  # 绿柱波底，乳沟深V的尖
 
 
 def MA(df, window, field, new_field):
@@ -163,10 +163,10 @@ def prepare_csv_data(code_list, start_date=None, end_date=None, n_days=_config.n
                                                                             KL_FIELD.HIGH, KL_FIELD.LOW],
                                                                     max_count=1000)
             csv_file_name = df_file_name(code, ktype)
-            if timeUnitDelta>=0:
+            if timeUnitDelta >= 0:
                 df.to_csv(csv_file_name)
             else:
-                df[:timeUnitDelta//timeConvTable[k]].to_csv(csv_file_name)
+                df[:timeUnitDelta // timeConvTable[k]].to_csv(csv_file_name)
             files.append(csv_file_name)
             time.sleep(3.1)  # 频率限制
         code_data_path[code] = files
@@ -248,7 +248,7 @@ def __add_df_tags(df: DataFrame, field, k_peroid):
 
     # 连续的区域用r, g区分，方便后续计算
     color_tag_field = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
-    df[color_tag_field] = RG_AreaTag.GREEN  # 先设置绿色很重要，因为可以把过于段的过滤掉
+    df[color_tag_field] = RG_AreaTag.GREEN  # 先设置绿色很重要，因为可以把宽度太短的连续区域过滤掉
 
     for s, e in red_areas:  # 过滤掉红色过小的区域，这里还要注意一点，如果可被过滤的短区域存在最后，也是要保留成红色的
         if e + 1 == df.shape[0]:
@@ -257,7 +257,7 @@ def __add_df_tags(df: DataFrame, field, k_peroid):
             df.loc[s:e, color_tag_field] = RG_AreaTag.RED
 
 
-def __ext_field(field_name, ext=RG_AreaTagFieldNameExt.BAR_TAG):
+def __ext_field(field_name, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG):
     """
 
     :param field_name:
@@ -353,7 +353,7 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field):
     :return: 没有背离为0，
     """
     rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
-    field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_TAG)
+    field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
     dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
     # 这一段连续区域里包含了被同化的不同色，需要对这部分对应的值进行处理，等于0是个办法
     # 对应于底背离，应该是bar_field>0, 但是 颜色标记为G的那些，因为颜色全都是G，因此只需要
@@ -401,7 +401,7 @@ def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar'):
     """
     if df.shape[0] == 0:
         return 0
-    field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_TAG)
+    field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
     rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
     wave_cnt = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK].shape[0]
@@ -415,8 +415,8 @@ def get_current_ma_distance(df: DataFrame):
     :param df:
     :return: 0.0131 ， 0.0323， 保留4位小数
     """
-    close_price = df.iat(df.shape[0] - 1, 'close')
-    ma_gap = df.iat(df.shape[0] - 1, 'em_bar')
+    close_price = df.at[df.shape[0] - 1, 'close']
+    ma_gap = df.at[df.shape[0] - 1, 'em_bar']
     return round(abs(ma_gap / close_price), 4)
 
 
@@ -455,7 +455,7 @@ def resonance_cnt(df1: DataFrame, df2: DataFrame, field):
     return min(wave_1, wave_2) - 1  # 2个波形成1个共振
 
 
-def is_macd_bar_reduce(df: DataFrame, field='macd_bar', k_period=_config.periods[0]):
+def is_macd_bar_reduce(df: DataFrame, field='macd_bar', k_period=_config.periods[0], max_reduce_bar_distance=4):
     """
     macd 绿柱子第一根减少出现，不能减少太剧烈，前面的绿色柱子不能太少
     前提是：最后一段柱子必须是绿色的
@@ -464,21 +464,61 @@ def is_macd_bar_reduce(df: DataFrame, field='macd_bar', k_period=_config.periods
     :return:
     """
     field_rg_tag_name = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
+    field_tag = __ext_field(field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
     last_idx = df[df[field_rg_tag_name] == RG_AreaTag.RED].tail(1).index[0]  # 最后一个红柱的index
     if last_idx + 1 == df.shape[0]:  # 红柱子是最后一个，没有出绿柱
         return False
     else:
         green_bar_len = df[last_idx + 1:].shape[0]
         if green_bar_len > math.ceil(_config.periods_config[k_period]['moutain_min_width'] / 2):
-            cur_bar_len = df.iloc[-1][field]
-            pre_bar_1_len = df.iloc[-2][field]
-            pre_bar_2_len = df.iloc[-3][field]
+            cur_bar_len = df.iloc[-1][field]  # 当前计算出的长度
+            pre_bar_1_len = df.iloc[-2][field]  # 理论上缩短的第一根（但是也许是最长的那一根）
+            # 如果pre_bar_1是一个绿色峰顶，那么就没有必要和他左侧的继续进行比较了
+            if df.at[df.shape[0]-2, field_tag]==WaveType.GREEN_PEAK:
+                pre_bar_2_len = float('-inf')
+            else:
+                pre_bar_2_len = df.iloc[-3][field]  # 理论上最长的那根,也可能是最长那根左侧的
 
-            is_reduce = cur_bar_len > pre_bar_1_len and cur_bar_len > pre_bar_2_len
+            # 然后计算当前bar和最长bar的距离
+            cur_bar_idx = df.tail(1).index[0]
+            max_bar_idx = __get_last_possible_max_bar_idx(df, "macd_bar")
+            is_reduce = (cur_bar_len > pre_bar_1_len and cur_bar_len > pre_bar_2_len) and \
+                        (cur_bar_idx-max_bar_idx<=max_reduce_bar_distance)
             # TODO 这里还需要评估一下到底减少多少幅度/速度是最优的
             return is_reduce
         else:  # 最后的绿色柱子太少了
             return False
+
+
+def __get_last_possible_max_bar_idx(df: DataFrame, field):
+    """
+    一段绿色区域被打标之后，如果新增一根，那么这根由于个数不足，无法判断是不是一个最大值。
+    这个函数就是要找到这样的可能最大值的点，如果没有就返回打标的最大值点
+    Parameters
+    ----------
+    df 一段连续的df
+
+    Returns
+    -------
+
+    """
+    dftemp = df.copy()
+    dftemp.loc[dftemp[field] > 0, field] = 0 # 有可能是红色的区域设置为0
+    dftemp[field] = dftemp[field].abs()
+    # 从这里面找出来绿色峰底，然后有2种情况：1）存在；2）不存在
+    # 1）存在，那么找到峰底之后的部分的最大值，然后返回
+    # 2）不存在，直接找到最大值index返回
+    field_tag = __ext_field(field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
+    field_rg_tag = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
+    df2 = dftemp[dftemp[field_rg_tag] == WaveType.GREEN_VALLEY]
+    if df2.shape[0]>0 :
+        peak_idx = df2.tail(1).index[0]
+        if peak_idx+1 == dftemp.shape[0]: # 最后一个是谷底，那么就把前面的峰底返回
+            return dftemp[dftemp[field_rg_tag]==WaveType.GREEN_PEAK].index[0]
+        else:
+            return dftemp[peak_idx+1:][field].idxmax(axis=0)
+    else:
+        return dftemp[field].idxmax(axis=0)
 
 
 if __name__ == '__main__':
