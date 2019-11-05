@@ -337,7 +337,7 @@ def __do_bar_wave_tag(raw_df: DataFrame, field, successive_bar_area, moutain_min
     return df
 
 
-def bottom_divergence_cnt(df: DataFrame, bar_field, value_field):
+def bottom_divergence_cnt(df: DataFrame, bar_field, value_field, start_time_key=None):
     """
     field字段出现连续背离的个数,也既多重背离个数。
     背离必须是连续的。
@@ -354,7 +354,11 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field):
     """
     rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
-    dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
+    if start_time_key is not None:
+        dftemp = df[(df.time_key >= start_time_key) & (df[rg_tag_name] == RG_AreaTag.GREEN)].copy().reset_index(
+            drop=True)
+    else:
+        dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
     # 这一段连续区域里包含了被同化的不同色，需要对这部分对应的值进行处理，等于0是个办法
     # 对应于底背离，应该是bar_field>0, 但是 颜色标记为G的那些，因为颜色全都是G，因此只需要
     # 把bar_field>0的全都设置为0即可
@@ -365,8 +369,8 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field):
     # # 然后找出来最大长度的区
     bar_desc = __max_successive_series_len(bar_array)
     val_desc = __max_successive_series_len(val_array)
-    cnt =  max(bar_desc, val_desc)-1
-    return max(0, cnt) # 防止小于0
+    cnt = max(bar_desc, val_desc) - 1
+    return max(0, cnt)  # 防止小于0
 
 
 def __max_successive_series_len(arr):
@@ -392,7 +396,7 @@ def __max_successive_series_len(arr):
     return max_area_len
 
 
-def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar'):
+def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar', start_time_key=None):
     """
     在一段连续的绿柱子区间，当前的波峰是第几个
     方法是：从当前时间开始找到前面第一段连续绿柱，然后计算绿柱区间有几个波峰；
@@ -405,7 +409,11 @@ def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar'):
         return 0
     field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
     rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
-    dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
+    if start_time_key is not None:
+        dftemp = df[(df.time_key >= start_time_key) & (df[rg_tag_name] == RG_AreaTag.GREEN)].copy().reset_index(
+            drop=True)
+    else:
+        dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
     wave_cnt = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK].shape[0]
     # TODO 这个地方有点问题，对于最后一段区域需要进一步处理，做一定预测。当前的GREEN_TOP在实时中不一定被打标
     return wave_cnt
@@ -439,7 +447,7 @@ def __get_last_successive_rg_area(df: DataFrame, rg_field_name, area=RG_AreaTag.
         return dftemp
 
 
-def resonance_cnt(df1: DataFrame, df2: DataFrame, field):
+def resonance_cnt(df1: DataFrame, df2: DataFrame, field, start_time_key=None):
     """
     2个周期的共振次数
     方法是：选最后一段连续绿色区域，找出波数w1和w2,然后返会min(s1,s2)
@@ -448,10 +456,15 @@ def resonance_cnt(df1: DataFrame, df2: DataFrame, field):
     :param field:
     :return:
     """
-    area1 = __get_last_successive_rg_area(df1, __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG),
-                                          area=RG_AreaTag.GREEN)
-    area2 = __get_last_successive_rg_area(df2, __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG),
-                                          area=RG_AreaTag.GREEN)
+    rg_tag_name = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
+    if start_time_key is None:
+        area1 = df1[(df1.time_key >= start_time_key) & df1[rg_tag_name] == RG_AreaTag.GREEN].copy().reset_index(
+            drop=True)
+        area2 = df2[(df2.time_key >= start_time_key) & df2[rg_tag_name] == RG_AreaTag.GREEN].copy().reset_index(
+            drop=True)
+    else:
+        area1 = __get_last_successive_rg_area(df1, rg_tag_name, area=RG_AreaTag.GREEN)
+        area2 = __get_last_successive_rg_area(df2, rg_tag_name, area=RG_AreaTag.GREEN)
     wave_1 = bar_green_wave_cnt(area1, field)
     wave_2 = bar_green_wave_cnt(area2, field)
     return min(wave_1, wave_2) - 1  # 2个波形成1个共振
@@ -463,20 +476,20 @@ def is_macd_bar_reduce(df: DataFrame, field='macd_bar', k_period=_config.periods
     前提是：最后一段柱子必须是绿色的
     :param df:
     :param field:
-    :return:
+    :return: 减少返回True, 否则False, 第二个参数是最后一根绿色柱子出现的日期
     """
     field_rg_tag_name = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     field_tag = __ext_field(field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
     last_idx = df[df[field_rg_tag_name] == RG_AreaTag.RED].tail(1).index[0]  # 最后一个红柱的index
     if last_idx + 1 == df.shape[0]:  # 红柱子是最后一个，没有出绿柱
-        return False
+        return False, None
     else:
         green_bar_len = df[last_idx + 1:].shape[0]
         if green_bar_len > math.ceil(_config.periods_config[k_period]['moutain_min_width'] / 2):
             cur_bar_len = df.iloc[-1][field]  # 当前计算出的长度
             pre_bar_1_len = df.iloc[-2][field]  # 理论上缩短的第一根（但是也许是最长的那一根）
             # 如果pre_bar_1是一个绿色峰顶，那么就没有必要和他左侧的继续进行比较了
-            if df.at[df.shape[0]-2, field_tag]==WaveType.GREEN_PEAK:
+            if df.at[df.shape[0] - 2, field_tag] == WaveType.GREEN_PEAK:
                 pre_bar_2_len = float('-inf')
             else:
                 pre_bar_2_len = df.iloc[-3][field]  # 理论上最长的那根,也可能是最长那根左侧的
@@ -485,11 +498,11 @@ def is_macd_bar_reduce(df: DataFrame, field='macd_bar', k_period=_config.periods
             cur_bar_idx = df.tail(1).index[0]
             max_bar_idx = __get_last_possible_max_bar_idx(df, "macd_bar")
             is_reduce = (cur_bar_len > pre_bar_1_len and cur_bar_len > pre_bar_2_len) and \
-                        (cur_bar_idx-max_bar_idx<=max_reduce_bar_distance)
+                        (cur_bar_idx - max_bar_idx <= max_reduce_bar_distance)
             # TODO 这里还需要评估一下到底减少多少幅度/速度是最优的
-            return is_reduce
+            return is_reduce, df.iloc[last_idx + 1]['time_key']
         else:  # 最后的绿色柱子太少了
-            return False
+            return False, None
 
 
 def __get_last_possible_max_bar_idx(df: DataFrame, field):
@@ -505,7 +518,7 @@ def __get_last_possible_max_bar_idx(df: DataFrame, field):
 
     """
     dftemp = df.copy()
-    dftemp.loc[dftemp[field] > 0, field] = 0 # 有可能是红色的区域设置为0
+    dftemp.loc[dftemp[field] > 0, field] = 0  # 有可能是红色的区域设置为0
     dftemp[field] = dftemp[field].abs()
     # 从这里面找出来绿色峰底，然后有2种情况：1）存在；2）不存在
     # 1）存在，那么找到峰底之后的部分的最大值，然后返回
@@ -513,12 +526,12 @@ def __get_last_possible_max_bar_idx(df: DataFrame, field):
     field_tag = __ext_field(field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
     field_rg_tag = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     df2 = dftemp[dftemp[field_rg_tag] == WaveType.GREEN_VALLEY]
-    if df2.shape[0]>0 :
+    if df2.shape[0] > 0:
         peak_idx = df2.tail(1).index[0]
-        if peak_idx+1 == dftemp.shape[0]: # 最后一个是谷底，那么就把前面的峰底返回
-            return dftemp[dftemp[field_rg_tag]==WaveType.GREEN_PEAK].index[0]
+        if peak_idx + 1 == dftemp.shape[0]:  # 最后一个是谷底，那么就把前面的峰底返回
+            return dftemp[dftemp[field_rg_tag] == WaveType.GREEN_PEAK].index[0]
         else:
-            return dftemp[peak_idx+1:][field].idxmax(axis=0)
+            return dftemp[peak_idx + 1:][field].idxmax(axis=0)
     else:
         return dftemp[field].idxmax(axis=0)
 
