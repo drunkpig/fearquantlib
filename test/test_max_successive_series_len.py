@@ -7,7 +7,7 @@ class TestMxSuccSeriesLen(unittest.TestCase):
     def test_fn(self):
         arr = [1,7,3,4,5,2,4,5,6,1,0,4]
         l = max_len(arr)
-        self.assertEqual(4,l)
+        self.assertEqual(3,l)# 6,1,0
 
 
 if __name__ == '__main__':

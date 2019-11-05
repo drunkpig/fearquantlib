@@ -365,12 +365,14 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field):
     # # 然后找出来最大长度的区
     bar_desc = __max_successive_series_len(bar_array)
     val_desc = __max_successive_series_len(val_array)
-    return max(bar_desc, val_desc)
+    cnt =  max(bar_desc, val_desc)-1
+    return max(0, cnt) # 防止小于0
 
 
 def __max_successive_series_len(arr):
     """
     寻找最大连续子序列，子序列的下标必须是相连的
+    例如， 1,2,3 返回3
     Parameters
     ----------
     arr
@@ -382,7 +384,7 @@ def __max_successive_series_len(arr):
     max_area_len = 0
     for i in range(len(arr)):
         for j in range(i + 1, len(arr)):
-            if arr[j] > arr[j - 1]:
+            if arr[j] < arr[j - 1]:
                 max_area_len = max(j - i + 1, max_area_len)
             else:
                 i = j
