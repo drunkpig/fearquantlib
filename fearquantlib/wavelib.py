@@ -457,7 +457,7 @@ def resonance_cnt(df1: DataFrame, df2: DataFrame, field, start_time_key=None):
     :return:
     """
     rg_tag_name = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
-    if start_time_key is None:
+    if start_time_key is not None:
         area1 = df1[(df1.time_key >= start_time_key) & df1[rg_tag_name] == RG_AreaTag.GREEN].copy().reset_index(
             drop=True)
         area2 = df2[(df2.time_key >= start_time_key) & df2[rg_tag_name] == RG_AreaTag.GREEN].copy().reset_index(
@@ -467,7 +467,7 @@ def resonance_cnt(df1: DataFrame, df2: DataFrame, field, start_time_key=None):
         area2 = __get_last_successive_rg_area(df2, rg_tag_name, area=RG_AreaTag.GREEN)
     wave_1 = bar_green_wave_cnt(area1, field)
     wave_2 = bar_green_wave_cnt(area2, field)
-    return min(wave_1, wave_2) - 1  # 2个波形成1个共振
+    return max(0, min(wave_1, wave_2) - 1)  # 2个波形成1个共振
 
 
 def is_macd_bar_reduce(df: DataFrame, field='macd_bar', k_period=_config.periods[0], max_reduce_bar_distance=4):
