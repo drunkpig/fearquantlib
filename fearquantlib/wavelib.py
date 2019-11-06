@@ -326,8 +326,10 @@ def __do_bar_wave_tag(raw_df: DataFrame, field, successive_bar_area, moutain_min
 
                 # 在下一个阶段中评估波峰波谷的变化度（是否是深V？）
                 # 一段连续的区间里可以产生多个波峰，但是波谷可能是重合的，这就要评估是否是深V，合并波峰
-                df.at[i, tag_field] = WaveType.RED_VALLEY
-                df.at[j, tag_field] = WaveType.RED_VALLEY
+                if i!=max_row_index: # 这是为了防止边界上的是最大峰，被覆盖掉
+                    df.at[i, tag_field] = WaveType.RED_VALLEY
+                if j!=max_row_index:
+                    df.at[j, tag_field] = WaveType.RED_VALLEY
 
             # 剩下两段加入sub_area_list继续迭代
             if i - s + 1 >= moutain_min_width:
