@@ -4,6 +4,7 @@ from operator import itemgetter
 
 import talib
 from futu import *
+from futu import RET_OK
 from pandas import DataFrame
 from tushare.util.dateu import trade_cal
 
@@ -162,6 +163,10 @@ def prepare_csv_data(code_list, start_date=None, end_date=None, n_days=_config.n
                                                                     fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE,
                                                                             KL_FIELD.HIGH, KL_FIELD.LOW],
                                                                     max_count=1000)
+            if ret != RET_OK:
+                logger.error(df)
+                return None
+
             csv_file_name = df_file_name(code, ktype)
             if timeUnitDelta >= 0:
                 df.to_csv(csv_file_name)
