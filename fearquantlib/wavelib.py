@@ -423,11 +423,11 @@ def get_current_ma_distance(df: DataFrame):
     """
     计算(ma(5)-ma(10))/close，保留2位小数
     :param df:
-    :return: 0.0131 ， 0.0323， 保留4位小数
+    :return: 0.0131 ， 0.0323， 保留3位小数
     """
     close_price = df.at[df.shape[0] - 1, 'close']
     ma_gap = df.at[df.shape[0] - 1, 'em_bar']
-    return round(abs(ma_gap / close_price), 4)
+    return round(abs(ma_gap / close_price), 3)
 
 
 def __get_last_successive_rg_area(df: DataFrame, rg_field_name, area=RG_AreaTag.GREEN):
