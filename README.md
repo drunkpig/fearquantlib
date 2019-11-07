@@ -7,6 +7,10 @@
 [api 文档](apidocs.md)
 
 
+### 数据API
+- [破解的通达信](https://rainx.gitbooks.io/pytdx/content/pytdx_hq.html)
+- [futuopenAPI](https://futunnopen.github.io/futu-api-doc/index.html)
+
 ### 发布到pypi
 
 [参考地址](https://github.com/jscrapy/mydoc/blob/master/pypi.md)

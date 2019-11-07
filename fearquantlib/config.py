@@ -54,18 +54,18 @@ class QuantConfig(object):
         else:
             cmd_config_file = None
         home_config_file = os.path.expanduser('~/.fear-quant/config.json')
-        runtime_config_file = os.path.dirname(os.path.realpath(sys.argv[0]))  # 运行时目录
-        runtime_config_file = f"{runtime_config_file}/config.json"
+        # runtime_config_file = os.path.dirname(os.path.realpath(sys.argv[0]))  # 运行时目录
+        # runtime_config_file = f"{runtime_config_file}/config.json"
 
-        if cmd_config_file and os.path.exists(cmd_config_file):
+        if cmd_config_file is not None and os.path.exists(cmd_config_file):
             config_file = cmd_config_file
-            logger.info("使用命令行配置文件")
+            logger.debug("使用命令行配置文件")
         elif os.path.exists(home_config_file):
             config_file = home_config_file
             logger.info("使用家目录下配置文件")
-        elif os.path.exists(runtime_config_file):
-            config_file = runtime_config_file
-            logger.info("使用工程目录下配置文件")
+        # elif os.path.exists(runtime_config_file):
+        #     config_file = runtime_config_file
+        #     logger.info("使用工程目录下配置文件")
         else:
             logger.error("没有找到配置文件")
             raise Exception("没有找到配置文件")

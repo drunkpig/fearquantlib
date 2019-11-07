@@ -141,6 +141,12 @@ def n_trade_days_ago(n_trade_days, end_dt=today()):
     return start_date
 
 
+def get_md5(s):
+    md = hashlib.md5()
+    md.update(s.encode('utf-8'))
+    return md.hexdigest()
+
+
 def prepare_csv_data(code_list, start_date=None, end_date=None, n_days=_config.n_days_bar_fetch, timeUnitDelta=0):
     """
 
@@ -158,6 +164,7 @@ def prepare_csv_data(code_list, start_date=None, end_date=None, n_days=_config.n
         files = []
         for k in _config.periods:
             ktype = K_LINE_TYPE[k]
+            csv_file_name = df_file_name(code, ktype)
             ret, df, page_req_key = quote_ctx.request_history_kline(code, start=start_date, end=end_date,
                                                                     ktype=ktype,
                                                                     fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE,
@@ -167,7 +174,6 @@ def prepare_csv_data(code_list, start_date=None, end_date=None, n_days=_config.n
                 logger.error(df)
                 return None
 
-            csv_file_name = df_file_name(code, ktype)
             if timeUnitDelta >= 0:
                 df.to_csv(csv_file_name)
             else:
@@ -326,9 +332,9 @@ def __do_bar_wave_tag(raw_df: DataFrame, field, successive_bar_area, moutain_min
 
                 # 在下一个阶段中评估波峰波谷的变化度（是否是深V？）
                 # 一段连续的区间里可以产生多个波峰，但是波谷可能是重合的，这就要评估是否是深V，合并波峰
-                if i!=max_row_index: # 这是为了防止边界上的是最大峰，被覆盖掉
+                if i != max_row_index:  # 这是为了防止边界上的是最大峰，被覆盖掉
                     df.at[i, tag_field] = WaveType.RED_VALLEY
-                if j!=max_row_index:
+                if j != max_row_index:
                     df.at[j, tag_field] = WaveType.RED_VALLEY
 
             # 剩下两段加入sub_area_list继续迭代
@@ -361,9 +367,9 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field, start_time_key=
     """
     rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
+    # 一般情况下这个start_time_key属于大周期，比如60分，当60分出现绿色的时候，小周期肯定是提前的。因此这里要加以处理
     if start_time_key is not None:
-        dftemp = df[(df.time_key >= start_time_key) & (df[rg_tag_name] == RG_AreaTag.GREEN)].copy().reset_index(
-            drop=True)
+        dftemp = __get_real_successive_rg_area(df, rg_tag_name, start_time_key, RG_AreaTag.GREEN)
     else:
         dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
     # 这一段连续区域里包含了被同化的不同色，需要对这部分对应的值进行处理，等于0是个办法
@@ -374,13 +380,13 @@ def bottom_divergence_cnt(df: DataFrame, bar_field, value_field, start_time_key=
     bar_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][bar_field].abs().array  # 最后一段连续绿色区域的bar的顶点
     val_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][value_field].array
     # # 然后找出来最大长度的区
-    bar_desc = __max_successive_series_len(bar_array)
-    val_desc = __max_successive_series_len(val_array)
-    cnt = max(bar_desc, val_desc) - 1
+    bar_desc = __max_successive_series_len(bar_array, asc=False)
+    val_desc = __max_successive_series_len(val_array, asc=False)
+    cnt = min(bar_desc, val_desc) - 1  # 背离取最小
     return max(0, cnt)  # 防止小于0
 
 
-def __max_successive_series_len(arr):
+def __max_successive_series_len(arr, asc=True, eq=False):
     """
     寻找最大连续子序列，子序列的下标必须是相连的
     例如， 1,2,3 返回3
@@ -395,7 +401,9 @@ def __max_successive_series_len(arr):
     max_area_len = 0
     for i in range(len(arr)):
         for j in range(i + 1, len(arr)):
-            if arr[j] < arr[j - 1]:
+            if asc and (arr[j] > arr[j - 1]):
+                max_area_len = max(j - i + 1, max_area_len)
+            elif not asc and (arr[j] < arr[j - 1]):
                 max_area_len = max(j - i + 1, max_area_len)
             else:
                 i = j
@@ -435,6 +443,33 @@ def get_current_ma_distance(df: DataFrame):
     close_price = df.at[df.shape[0] - 1, 'close']
     ma_gap = df.at[df.shape[0] - 1, 'em_bar']
     return round(abs(ma_gap / close_price), 3)
+
+
+def __get_real_successive_rg_area(df: DataFrame, tag_name, start_time_key, area=RG_AreaTag.GREEN):
+    """
+
+    Parameters
+    ----------
+    df
+    tag_name
+    start_time_key
+    area
+
+    Returns
+    -------
+
+    """
+    # 找到start_time_key的index, 然后取df[:start_time_key], 找到最后一个RG_AreaTag.RED， 这一行的下一个就是连续绿色的真正起始地址
+    start_time_key_idx = df[df.time_key == start_time_key].array[0]
+    dfbefore = df[:start_time_key_idx]
+    other_area = dfbefore[dfbefore[tag_name] != area]
+    if other_area.shape[0] != 0:  # 从这个颜色最后一个开始切分，要后面的
+        idx = other_area.tail(1).index[0]
+        dftemp = df[idx + 1:].copy().reset_index(drop=True)
+    else:
+        dftemp = df.copy().reset_index(drop=True)
+
+    return dftemp
 
 
 def __get_last_successive_rg_area(df: DataFrame, rg_field_name, area=RG_AreaTag.GREEN):
