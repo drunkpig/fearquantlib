@@ -425,8 +425,7 @@ def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar', start_time_key=None)
     field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
     rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     if start_time_key is not None:
-        dftemp = df[(df.time_key >= start_time_key) & (df[rg_tag_name] == RG_AreaTag.GREEN)].copy().reset_index(
-            drop=True)
+        dftemp = __get_real_successive_rg_area(df, rg_tag_name, start_time_key,  area=RG_AreaTag.GREEN)
     else:
         dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
     wave_cnt = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK].shape[0]
@@ -460,7 +459,7 @@ def __get_real_successive_rg_area(df: DataFrame, tag_name, start_time_key, area=
 
     """
     # 找到start_time_key的index, 然后取df[:start_time_key], 找到最后一个RG_AreaTag.RED， 这一行的下一个就是连续绿色的真正起始地址
-    start_time_key_idx = df[df.time_key == start_time_key].array[0]
+    start_time_key_idx = df[df.time_key == start_time_key].index[0]
     dfbefore = df[:start_time_key_idx]
     other_area = dfbefore[dfbefore[tag_name] != area]
     if other_area.shape[0] != 0:  # 从这个颜色最后一个开始切分，要后面的
@@ -500,10 +499,8 @@ def resonance_cnt(df1: DataFrame, df2: DataFrame, field, start_time_key=None):
     """
     rg_tag_name = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
     if start_time_key is not None:
-        area1 = df1[(df1.time_key >= start_time_key) & df1[rg_tag_name] == RG_AreaTag.GREEN].copy().reset_index(
-            drop=True)
-        area2 = df2[(df2.time_key >= start_time_key) & df2[rg_tag_name] == RG_AreaTag.GREEN].copy().reset_index(
-            drop=True)
+        area1 = __get_real_successive_rg_area(df1, rg_tag_name, start_time_key, RG_AreaTag.GREEN)
+        area2 = __get_real_successive_rg_area(df2, rg_tag_name, start_time_key, RG_AreaTag.GREEN)
     else:
         area1 = __get_last_successive_rg_area(df1, rg_tag_name, area=RG_AreaTag.GREEN)
         area2 = __get_last_successive_rg_area(df2, rg_tag_name, area=RG_AreaTag.GREEN)
