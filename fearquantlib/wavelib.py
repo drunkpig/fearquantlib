@@ -147,6 +147,23 @@ def n_trade_days_ago(n_trade_days, end_dt=today()):
     return start_date
 
 
+def get_trade_days_between(start_dt, end_dt):
+    """
+    找到两个日期中间，包含开始和结束日期内的交易日
+    Parameters
+    ----------
+    start_dt
+    end_dt
+
+    Returns
+    -------
+
+    """
+    trade_days = trade_cal()
+    n = trade_days[(trade_days.calendarDate<=end_dt)&(trade_days.calendarDate>=start_dt)&(trade_days.isOpen==1)].shape[0]
+    return n
+
+
 def get_md5(s):
     md = hashlib.md5()
     md.update(s.encode('utf-8'))
@@ -212,16 +229,11 @@ def prepare_csv_data_tdx(code_list, start_date=None, end_date=None, n_days=_conf
         """
         # 1, 计算end_dt和today的差值，根据ktype得到偏移量
         # 2, 计算start_dt和end_dt的差值，根据ktype得到bar长度
-        start = datetime.strptime(start_dt, "%Y-%m-%d")
-        end = datetime.strptime(end_dt, "%Y-%m-%d")
-        today = datetime.now()
-        off_days = today-end
-        off_days = off_days.days
-        offset = (off_days*4*timeConvTable["KL_60"])//timeConvTable[ktype]
+        offset_to_today = get_trade_days_between(start_dt, today())
+        offset = (offset_to_today*4*timeConvTable["KL_60"])//timeConvTable[ktype]
 
-        interval = end-start
-        days_delta = interval.days+1 # 包含两端
-        bar_len = (days_delta*4*timeConvTable["KL_60"])//timeConvTable[ktype]
+        offset_between = get_trade_days_between(start_dt, end_dt)
+        bar_len = (offset_between*4*timeConvTable["KL_60"])//timeConvTable[ktype]
         return offset, bar_len
 
     if start_date is None:
@@ -244,7 +256,7 @@ def prepare_csv_data_tdx(code_list, start_date=None, end_date=None, n_days=_conf
                 #                                                         max_count=1000)
                 # k类型，市场1沪，0深， code, 从当前的向前偏移多少，取多少根
                 offset, bar_count = __get_bar_offset(start_date, end_date, k)
-                data = api.get_index_bars(ktype, __get_market_code(code), code, offset, bar_count)
+                data = api.get_security_bars(ktype, __get_market_code(code), code, offset, bar_count)
                 if not data:
                     logger.error("没有获取到数据")
                     return None
