@@ -1,7 +1,7 @@
 import math
 from itertools import groupby
 from operator import itemgetter
-
+from pytdx.hq import TdxHq_API
 import talib
 from futu import *
 from futu import RET_OK
@@ -19,10 +19,16 @@ class KL_Period(object):
     KL_15 = "KL_15"
 
 
-K_LINE_TYPE = {
+K_LINE_TYPE_FUTU = {
     KL_Period.KL_60: KLType.K_60M,
     KL_Period.KL_30: KLType.K_30M,
     KL_Period.KL_15: KLType.K_15M,
+}
+
+K_LINE_TYPE_TDX={
+    KL_Period.KL_60: 3,
+    KL_Period.KL_30: 2,
+    KL_Period.KL_15: 1,
 }
 
 
@@ -163,8 +169,8 @@ def prepare_csv_data(code_list, start_date=None, end_date=None, n_days=_config.n
     for code in code_list:
         files = []
         for k in _config.periods:
-            ktype = K_LINE_TYPE[k]
-            csv_file_name = df_file_name(code, ktype)
+            ktype = K_LINE_TYPE_FUTU[k]
+            csv_file_name = df_file_name(code, k)
             ret, df, page_req_key = quote_ctx.request_history_kline(code, start=start_date, end=end_date,
                                                                     ktype=ktype,
                                                                     fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE,
@@ -187,7 +193,75 @@ def prepare_csv_data(code_list, start_date=None, end_date=None, n_days=_config.n
     return code_data_path
 
 
-def get_df_of_code(code, start_date, end_date, ktype=K_LINE_TYPE[KL_Period.KL_60]):
+def prepare_csv_data_tdx(code_list, start_date=None, end_date=None, n_days=_config.n_days_bar_fetch, timeUnitDelta=0):
+    """
+
+    :param code_list: 股票列表
+    :return:{code:[周期1，小周期2, 小周期3.。。]，}
+    """
+    def __get_market_code(stock_code):
+        """
+        1:沪市， 0：深圳
+        """
+        market_code = 1 if str(stock_code)[0] == '6' else 0
+        return market_code
+
+    def __get_bar_offset(start_dt, end_dt, ktype):
+        """
+        返回2个值，第一个是从当前开始往前推几个单位， 第二个值是从前面几个单位再往前获取多少个bar
+        """
+        # 1, 计算end_dt和today的差值，根据ktype得到偏移量
+        # 2, 计算start_dt和end_dt的差值，根据ktype得到bar长度
+        start = datetime.strptime(start_dt, "%Y-%m-%d")
+        end = datetime.strptime(end_dt, "%Y-%m-%d")
+        today = datetime.now()
+        off_days = today-end
+        off_days = off_days.days
+        offset = (off_days*4*timeConvTable["KL_60"])//timeConvTable[ktype]
+
+        interval = end-start
+        days_delta = interval.days+1 # 包含两端
+        bar_len = (days_delta*4*timeConvTable["KL_60"])//timeConvTable[ktype]
+        return offset, bar_len
+
+    if start_date is None:
+        start_date = n_trade_days_ago(n_days)
+    if end_date is None:
+        end_date = today()
+
+    code_data_path = {}
+    api = TdxHq_API(heartbeat=True)
+    with api.connect('119.147.212.81', 7709):
+        for code in code_list:
+            files = []
+            for k in _config.periods:
+                ktype = K_LINE_TYPE_TDX[k]
+                csv_file_name = df_file_name(code, k)
+                # ret, df, page_req_key = quote_ctx.request_history_kline(code, start=start_date, end=end_date,
+                #                                                         ktype=ktype,
+                #                                                         fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE,
+                #                                                                 KL_FIELD.HIGH, KL_FIELD.LOW],
+                #                                                         max_count=1000)
+                # k类型，市场1沪，0深， code, 从当前的向前偏移多少，取多少根
+                offset, bar_count = __get_bar_offset(start_date, end_date, k)
+                data = api.get_index_bars(ktype, __get_market_code(code), code, offset, bar_count)
+                if not data:
+                    logger.error("没有获取到数据")
+                    return None
+
+                df = api.to_df(data)
+                if timeUnitDelta >= 0:
+                    df.to_csv(csv_file_name)
+                else:
+                    df[:timeUnitDelta // timeConvTable[k]].to_csv(csv_file_name)
+                files.append(csv_file_name)
+                time.sleep(0.2)  # 不要太快
+            code_data_path[code] = files
+
+    return code_data_path
+
+
+def get_df_of_code(code, start_date, end_date, ktype=K_LINE_TYPE_FUTU[KL_Period.KL_60]):
     """
 
     :param code:
@@ -209,7 +283,7 @@ def df_file_name(stock_code, ktype):
     """
 
     :param stock_code:
-    :param ktype:
+    :param ktype: "KL_30, KL_60 ...
     :return:
     """
     prefix = _config.dev_model
@@ -224,8 +298,7 @@ def compute_df_bar(code_list):
     """
     for code in code_list:
         for k in _config.periods:  # 这里面的周期从大到小排列，并且可在配置里enable/disable
-            ktype = K_LINE_TYPE[k]
-            csv_file_name = df_file_name(code, ktype)
+            csv_file_name = df_file_name(code, k)
             df = pd.read_csv(csv_file_name, index_col=0)
             df = __do_compute_df_bar(df, k)  # K 是配置文件里的["KL_60","KL_30", "KL_15"] 之一
             # TODO 这里还要把尾部，从最后一个1/-1之后的强行选出来一个顶、底。尾部一般由于数据少没有被打上tag，就要特殊处理
@@ -446,7 +519,8 @@ def get_current_ma_distance(df: DataFrame):
 
 def __get_real_successive_rg_area(df: DataFrame, tag_name, start_time_key, area=RG_AreaTag.GREEN):
     """
-
+    start_time_key是大周期的green bar开始时间，如果用在小周期上，因为小周期green bar提前于大周期，因此在
+    小周期上start_time_key之前也有可能有属于小周期的连续green bar
     Parameters
     ----------
     df

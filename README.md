@@ -10,6 +10,7 @@
 ### 数据API
 - [破解的通达信](https://rainx.gitbooks.io/pytdx/content/pytdx_hq.html)
 - [futuopenAPI](https://futunnopen.github.io/futu-api-doc/index.html)
+- [交易日数据](https://github.com/rainx/cn_stock_holidays)
 
 ### 发布到pypi
 

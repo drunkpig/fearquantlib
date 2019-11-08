@@ -3,3 +3,4 @@ numpy==1.16.4
 TA-Lib==0.4.17
 futu-api==3.11.0
 tushare==1.2.37
+pytdx
