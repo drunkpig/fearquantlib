@@ -1,9 +1,4 @@
 {
-  "application_env": {
-    "dev_model": "dev_",
-    "futu_api_ip": "localhost",
-    "futu_api_port": 11111
-  },
 
   "parameters": {
     "periods": ["KL_60","KL_30", "KL_15"],

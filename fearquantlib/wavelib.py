@@ -1,43 +1,16 @@
 import math
 from itertools import groupby
 from operator import itemgetter
-from pytdx.hq import TdxHq_API
-import talib
-from futu import *
-from futu import RET_OK
 from pandas import DataFrame
-from tushare.util.dateu import trade_cal
-
-from fearquantlib.config import QuantConfig, timeConvTable
-
-_config = QuantConfig()
+from fearquantlib.utils import MA, MACD
 
 
-class KL_Period(object):
-    KL_60 = "KL_60"
-    KL_30 = "KL_30"
-    KL_15 = "KL_15"
+class RGAreaTagFieldName(object):
+    BAR_WAVE_TAG_NAME = 'tag'
+    RG_TAG_NAME = 'rg_tag'
 
 
-K_LINE_TYPE_FUTU = {
-    KL_Period.KL_60: KLType.K_60M,
-    KL_Period.KL_30: KLType.K_30M,
-    KL_Period.KL_15: KLType.K_15M,
-}
-
-K_LINE_TYPE_TDX={
-    KL_Period.KL_60: 3,
-    KL_Period.KL_30: 2,
-    KL_Period.KL_15: 1,
-}
-
-
-class RG_AreaTagFieldNameExt(object):
-    BAR_WAVE_TAG = 'tag'
-    RG_TAG = 'rg_tag'
-
-
-class RG_AreaTag(object):
+class RGAreaTagValue(object):
     GREEN = 'g'
     RED = 'r'
 
@@ -50,41 +23,12 @@ class WaveType(object):
     GREEN_VALLEY = -1  # 绿柱波底，乳沟深V的尖
 
 
-def MA(df, window, field, new_field):
-    """
-
-    :param df:
-    :param window:
-    :param field:
-    :param new_field:
-    :return:
-    """
-    df[new_field] = df[field].rolling(window=window).mean()
-    return df
-
-
-def MACD(df, field_name='close', quick_n=12, slow_n=26, dem_n=9):
-    """
-    
-    :param df:
-    :param field_name:
-    :param quick_n:
-    :param slow_n:
-    :param dem_n:
-    :return:
-    """
-    diff, macdsignal, macd_bar = talib.MACD(df[field_name], fastperiod=quick_n, slowperiod=slow_n, signalperiod=dem_n)
-    return diff, macdsignal, macd_bar
-
-
 def __find_successive_bar_areas(df: DataFrame, field='bar'):
     """
     这个地方不管宽度，只管找连续的区域
-    改进的寻找连续区域算法；
-    还有一种算法思路，由于红色柱子>0, 绿色柱子<0, 只要找到 x[n]*x[n+1]<0的点然后做分组即可。
-    :param raw_df:
-    :param field:
-    :return:
+    @param df:
+    @param field:
+    @return:
     """
     successive_areas = []
     # 第一步：把连续的同一颜色区域的index都放入一个数组
@@ -99,8 +43,8 @@ def __find_successive_bar_areas(df: DataFrame, field='bar'):
 def __do_find_successive_areas(arr):
     """
     值连续升序或者连续降序的段
-    :param arr: 下标index
-    :return:
+    @param arr: 下标index
+    @return:
     """
     successive_area = []
     for k, g in groupby(enumerate(arr), lambda iv: iv[0] - iv[1]):
@@ -110,254 +54,12 @@ def __do_find_successive_areas(arr):
     return successive_area
 
 
-def today():
+def __ext_field(field_name, ext=RGAreaTagFieldName.BAR_WAVE_TAG_NAME):
     """
 
-    :return:
-    """
-    tm_now = datetime.now()
-    td = tm_now.strftime("%Y-%m-%d")
-    return td
-
-
-def n_days_ago(n_days):
-    """
-    :param n_days:
-    :return:
-    """
-    tm_now = datetime.now()
-    delta = timedelta(days=n_days)
-    tm_start = tm_now - delta
-    ago = tm_start.strftime("%Y-%m-%d")
-    return ago
-
-
-def n_trade_days_ago(n_trade_days, end_dt=today()):
-    """
-    获取从end_dt向前的N个交易日开始的日期
-    :param n_trade_days: 从start_dt开始往前面推几个交易日。
-    :param start_dt: 往前推算交易日的开始日期，格式类似"2019-02-02"
-    :return:
-    """
-    trade_days = trade_cal()
-    last_idx = trade_days[trade_days.calendarDate == end_dt].index.values[0]
-
-    df = trade_days[trade_days.isOpen == 1]
-    start_date = df[df.index <= last_idx].tail(n_trade_days).head(1).iat[0, 0]
-    return start_date
-
-
-def get_trade_days_between(start_dt, end_dt):
-    """
-    找到两个日期中间，包含开始和结束日期内的交易日
-    Parameters
-    ----------
-    start_dt
-    end_dt
-
-    Returns
-    -------
-
-    """
-    trade_days = trade_cal()
-    n = trade_days[(trade_days.calendarDate<=end_dt)&(trade_days.calendarDate>=start_dt)&(trade_days.isOpen==1)].shape[0]
-    return n
-
-
-def get_md5(s):
-    md = hashlib.md5()
-    md.update(s.encode('utf-8'))
-    return md.hexdigest()
-
-
-def prepare_csv_data(code_list, start_date=None, end_date=None, n_days=_config.n_days_bar_fetch, timeUnitDelta=0):
-    """
-
-    :param code_list: 股票列表
-    :return:{code:[周期1，小周期2, 小周期3.。。]，}
-    """
-    if start_date is None:
-        start_date = n_trade_days_ago(n_days)
-    if end_date is None:
-        end_date = today()
-
-    code_data_path = {}
-    quote_ctx = OpenQuoteContext(host=_config.futu_api_ip, port=_config.futu_api_port)
-    for code in code_list:
-        files = []
-        for k in _config.periods:
-            ktype = K_LINE_TYPE_FUTU[k]
-            csv_file_name = df_file_name(code, k)
-            ret, df, page_req_key = quote_ctx.request_history_kline(code, start=start_date, end=end_date,
-                                                                    ktype=ktype,
-                                                                    fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE,
-                                                                            KL_FIELD.HIGH, KL_FIELD.LOW],
-                                                                    max_count=1000)
-            if ret != RET_OK:
-                logger.error(df)
-                return None
-
-            if timeUnitDelta >= 0:
-                df.to_csv(csv_file_name)
-            else:
-                df[:timeUnitDelta // timeConvTable[k]].to_csv(csv_file_name)
-            files.append(csv_file_name)
-            time.sleep(3.1)  # 频率限制
-        code_data_path[code] = files
-
-    quote_ctx.close()
-
-    return code_data_path
-
-
-def prepare_csv_data_tdx(code_list, start_date=None, end_date=None, n_days=_config.n_days_bar_fetch, timeUnitDelta=0):
-    """
-
-    :param code_list: 股票列表
-    :return:{code:[周期1，小周期2, 小周期3.。。]，}
-    """
-    def __get_market_code(stock_code):
-        """
-        1:沪市， 0：深圳
-        """
-        market_code = 1 if str(stock_code)[0] == '6' else 0
-        return market_code
-
-    def __get_bar_offset(start_dt, end_dt, ktype):
-        """
-        返回2个值，第一个是从当前开始往前推几个单位， 第二个值是从前面几个单位再往前获取多少个bar
-        """
-        # 1, 计算end_dt和today的差值，根据ktype得到偏移量
-        # 2, 计算start_dt和end_dt的差值，根据ktype得到bar长度
-        offset_to_today = get_trade_days_between(start_dt, today())
-        offset = (offset_to_today*4*timeConvTable["KL_60"])//timeConvTable[ktype]
-
-        offset_between = get_trade_days_between(start_dt, end_dt)
-        bar_len = (offset_between*4*timeConvTable["KL_60"])//timeConvTable[ktype]
-        return offset, bar_len
-
-    if start_date is None:
-        start_date = n_trade_days_ago(n_days)
-    if end_date is None:
-        end_date = today()
-
-    code_data_path = {}
-    api = TdxHq_API(heartbeat=True)
-    with api.connect('119.147.212.81', 7709):
-        for code in code_list:
-            files = []
-            for k in _config.periods:
-                ktype = K_LINE_TYPE_TDX[k]
-                csv_file_name = df_file_name(code, k)
-                # ret, df, page_req_key = quote_ctx.request_history_kline(code, start=start_date, end=end_date,
-                #                                                         ktype=ktype,
-                #                                                         fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE,
-                #                                                                 KL_FIELD.HIGH, KL_FIELD.LOW],
-                #                                                         max_count=1000)
-                # k类型，市场1沪，0深， code, 从当前的向前偏移多少，取多少根
-                offset, bar_count = __get_bar_offset(start_date, end_date, k)
-                data = api.get_security_bars(ktype, __get_market_code(code), code, offset, bar_count)
-                if not data:
-                    logger.error("没有获取到数据")
-                    return None
-
-                df = api.to_df(data)
-                if timeUnitDelta >= 0:
-                    df.to_csv(csv_file_name)
-                else:
-                    df[:timeUnitDelta // timeConvTable[k]].to_csv(csv_file_name)
-                files.append(csv_file_name)
-                time.sleep(0.2)  # 不要太快
-            code_data_path[code] = files
-
-    return code_data_path
-
-
-def get_df_of_code(code, start_date, end_date, ktype=K_LINE_TYPE_FUTU[KL_Period.KL_60]):
-    """
-
-    :param code:
-    :param ktype:
-    :param n_days:
-    :return:
-    """
-    quote_ctx = OpenQuoteContext(host=_config.futu_api_ip, port=_config.futu_api_port)
-    ret, df, page_req_key = quote_ctx.request_history_kline(code, start=start_date, end=end_date,
-                                                            ktype=ktype,
-                                                            fields=[KL_FIELD.DATE_TIME, KL_FIELD.CLOSE, KL_FIELD.HIGH,
-                                                                    KL_FIELD.LOW],
-                                                            max_count=1000)
-    quote_ctx.close()
-    return df
-
-
-def df_file_name(stock_code, ktype):
-    """
-
-    :param stock_code:
-    :param ktype: "KL_30, KL_60 ...
-    :return:
-    """
-    prefix = _config.dev_model
-    return f'data/{prefix}{stock_code}_{ktype}.csv'
-
-
-def compute_df_bar(code_list):
-    """
-    计算60,30,15分钟的指标，存盘
-    :param df:
-    :return:
-    """
-    for code in code_list:
-        for k in _config.periods:  # 这里面的周期从大到小排列，并且可在配置里enable/disable
-            csv_file_name = df_file_name(code, k)
-            df = pd.read_csv(csv_file_name, index_col=0)
-            df = __do_compute_df_bar(df, k)  # K 是配置文件里的["KL_60","KL_30", "KL_15"] 之一
-            # TODO 这里还要把尾部，从最后一个1/-1之后的强行选出来一个顶、底。尾部一般由于数据少没有被打上tag，就要特殊处理
-            df.to_csv(csv_file_name)
-
-
-def __do_compute_df_bar(df, k_period):
-    diff, dem, bar = MACD(df)
-    df['macd_bar'] = bar  # macd
-    df = MA(df, 5, 'close', 'ma5')
-    df = MA(df, 10, 'close', 'ma10')
-    df['em_bar'] = (df['ma5'] - df['ma10']).apply(lambda val: round(val, 2))  # 均线
-    __add_df_tags(df, "macd_bar", k_period)  # 顶部、谷底、连续区域打标r/g
-    __add_df_tags(df, "em_bar", k_period)  # r/g
-    return df
-
-
-def __add_df_tags(df: DataFrame, field, k_peroid):
-    """
-    field 的连续区域以及顶底
-    :param df:
-    :return:
-    """
-    moutain_min_width = _config.periods_config[k_peroid]['moutain_min_width']
-    tag_field_name = __ext_field(field)
-    red_areas, blue_areas = __find_successive_bar_areas(df, field)
-    df_blue = __do_bar_wave_tag(df, field, blue_areas, moutain_min_width=moutain_min_width)
-    df_blue[tag_field_name] *= -1  # 因为计算都变为正值，所以绿柱子要乘以-1
-    df_red = __do_bar_wave_tag(df, field, red_areas, moutain_min_width=moutain_min_width)
-    df[tag_field_name] = df_red[tag_field_name] | df_blue[tag_field_name]
-
-    # 连续的区域用r, g区分，方便后续计算
-    color_tag_field = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
-    df[color_tag_field] = RG_AreaTag.GREEN  # 先设置绿色很重要，因为可以把宽度太短的连续区域过滤掉
-
-    for s, e in red_areas:  # 过滤掉红色过小的区域，这里还要注意一点，如果可被过滤的短区域存在最后，也是要保留成红色的
-        if e + 1 == df.shape[0]:
-            df.loc[s:e, color_tag_field] = RG_AreaTag.RED
-        elif e - s + 1 >= moutain_min_width:
-            df.loc[s:e, color_tag_field] = RG_AreaTag.RED
-
-
-def __ext_field(field_name, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG):
-    """
-
-    :param field_name:
-    :return:
+    @param field_name:
+    @param ext:
+    @return:
     """
     return f'_{field_name}_{ext}'
 
@@ -365,11 +67,10 @@ def __ext_field(field_name, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG):
 def __do_bar_wave_tag(raw_df: DataFrame, field, successive_bar_area, moutain_min_width=5):
     """
     这里找波峰和波谷，找谷底的目的是为了测量波峰/谷的斜率
-    # TODO 试一下FFT寻找波谷波峰
-
+    这个函数会把负值变成正值处理，如果是绿峰需要对返回值进行处理
     :param raw_df:
     :param field:
-    :param successive_bar_area: 想同样色柱子区域, [tuple(start, end)]
+    :param successive_bar_area: 想同样色柱子区域, [(start1, end1),(start2, end2),...]
     :param moutain_min_width: 作为一个山峰最小的宽度，否则忽略
     :return: 打了tag 的df副本
     """
@@ -435,53 +136,14 @@ def __do_bar_wave_tag(raw_df: DataFrame, field, successive_bar_area, moutain_min
     return df
 
 
-def bottom_divergence_cnt(df: DataFrame, bar_field, value_field, start_time_key=None):
-    """
-    field字段出现连续背离的个数,也既多重背离个数。
-    背离必须是连续的。
-
-    方法是：找出最后一段绿色bar_field（为了计算方便负值转为正值），value_field顶点的值，形成两个array
-        找到bar_field中连续的下降段个数S_1，value_field中连续的下降段个数S_2。最后返回max(S_1,S_2)
-        为什么选最大而不是最小呢？其实最小也可以，但里面涉及到一些模糊的东西，把阈值设大，然后还要
-        辅助人工交易，如果取了min过于严格会误杀很多。
-
-    :param df:
-    :param bar_field: bar的field名字
-    :param value_field:  价格
-    :return: 没有背离为0，
-    """
-    rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
-    field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
-    # 一般情况下这个start_time_key属于大周期，比如60分，当60分出现绿色的时候，小周期肯定是提前的。因此这里要加以处理
-    if start_time_key is not None:
-        dftemp = __get_real_successive_rg_area(df, rg_tag_name, start_time_key, RG_AreaTag.GREEN)
-    else:
-        dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
-    # 这一段连续区域里包含了被同化的不同色，需要对这部分对应的值进行处理，等于0是个办法
-    # 对应于底背离，应该是bar_field>0, 但是 颜色标记为G的那些，因为颜色全都是G，因此只需要
-    # 把bar_field>0的全都设置为0即可
-    dftemp.loc[dftemp[bar_field] > 0, bar_field] = 0
-    # TODO 对最后一段进行打tag，要做一定的预测行为?绿峰一直在增长但背离的情况
-    bar_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][bar_field].abs().array  # 最后一段连续绿色区域的bar的顶点
-    val_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][value_field].array
-    # # 然后找出来最大长度的区
-    bar_desc = __max_successive_series_len(bar_array, asc=False)
-    val_desc = __max_successive_series_len(val_array, asc=False)
-    cnt = min(bar_desc, val_desc) - 1  # 背离取最小
-    return max(0, cnt)  # 防止小于0
-
-
 def __max_successive_series_len(arr, asc=True, eq=False):
     """
     寻找最大连续子序列，子序列的下标必须是相连的
     例如， 1,2,3 返回3
-    Parameters
-    ----------
-    arr
-
-    Returns
-    -------
-
+    @param arr:
+    @param asc:
+    @param eq:
+    @return:
     """
     max_area_len = 0
     for i in range(len(arr)):
@@ -496,23 +158,104 @@ def __max_successive_series_len(arr, asc=True, eq=False):
     return max_area_len
 
 
+def compute_df_bar(df, **kwargs):
+    """
+
+    @param df:
+    @param kwargs:与df所属周期绑定的配置参数
+    @return:
+    """
+    diff, dem, bar = MACD(df)
+    df['macd_bar'] = bar  # macd
+    df = MA(df, 5, 'close', 'ma5')
+    df = MA(df, 10, 'close', 'ma10')
+    df['em_bar'] = (df['ma5'] - df['ma10']).apply(lambda val: round(val, 2))  # 均线距离
+    __add_peak_valley_and_successive_area_tag(df, "macd_bar", **kwargs)  # 顶部、谷底、连续区域打标r/g
+    __add_peak_valley_and_successive_area_tag(df, "em_bar", **kwargs)  # r/g
+    return df
+
+
+def __add_peak_valley_and_successive_area_tag(df: DataFrame, field, **kwargs):
+    """
+    field 的连续区域以及顶底
+    @param df:
+    @param field:
+    @param kwargs: 与df所属周期绑定的配置参数
+    @return:
+    """
+    moutain_min_width = kwargs['moutain_min_width']
+    tag_field_name = __ext_field(field)
+    red_areas, blue_areas = __find_successive_bar_areas(df, field)
+    df_blue = __do_bar_wave_tag(df, field, blue_areas, moutain_min_width=moutain_min_width)
+    df_blue[tag_field_name] *= -1  # 因为计算都变为正值，所以绿柱子要乘以-1
+    df_red = __do_bar_wave_tag(df, field, red_areas, moutain_min_width=moutain_min_width)
+    df[tag_field_name] = df_red[tag_field_name] | df_blue[tag_field_name]
+
+    # 连续的区域用r, g区分，方便后续计算
+    color_tag_field = __ext_field(field, ext=RGAreaTagFieldName.RG_TAG_NAME)
+    df[color_tag_field] = RGAreaTagValue.GREEN  # 先设置绿色很重要，因为可以把宽度太短的连续区域过滤掉
+
+    for s, e in red_areas:  # 过滤掉红色过小的区域，这里还要注意一点，如果可被过滤的短区域存在最后，也是要保留成红色的
+        if e + 1 == df.shape[0]:  # 最后是出现了红色，那么无论多长就要保留,原因是可能继续增长，代表了趋势的方向
+            df.loc[s:e, color_tag_field] = RGAreaTagValue.RED
+        elif e - s + 1 >= moutain_min_width:
+            df.loc[s:e, color_tag_field] = RGAreaTagValue.RED
+
+
+def bottom_divergence_cnt(df: DataFrame, bar_field, value_field, start_time_key=None):
+    """
+    field字段出现连续背离的个数,也既多重背离个数。
+    背离必须是连续的。
+
+    方法是：找出最后一段绿色bar_field（为了计算方便负值转为正值），value_field顶点的值，形成两个array
+        找到bar_field中连续的下降山峰（一峰更比一峰高/低）个数S_1，value_field中连续的下降山峰个数S_2。最后返回max(S_1,S_2)
+        为什么选最大而不是最小呢？其实最小也可以，但里面涉及到一些模糊的东西，把阈值设大，然后还要
+        辅助人工交易，如果取了min过于严格会误杀很多。
+
+    :param df:
+    :param bar_field: bar的field名字
+    :param value_field:  价格
+    :return: 没有背离为0，
+    """
+    rg_tag_name = __ext_field(bar_field, ext=RGAreaTagFieldName.RG_TAG_NAME) #红绿
+    field_tag_name = __ext_field(bar_field, ext=RGAreaTagFieldName.BAR_WAVE_TAG_NAME) #波峰、波谷
+    # 一般情况下这个start_time_key属于大周期，比如60分，当60分出现绿色的时候，小周期肯定是提前的。因此这里要加以处理
+    if start_time_key is not None:
+        dftemp = __get_real_successive_rg_area(df, rg_tag_name, start_time_key, RGAreaTagValue.GREEN)
+    else:
+        dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RGAreaTagValue.GREEN)  # 获得最后一段连续绿色区域
+    # 这一段连续区域里包含了被同化的不同色，需要对这部分对应的值进行处理，等于0是个办法
+    # 对应于底背离，应该是bar_field>0, 但是 颜色标记为G的那些，因为颜色全都是G，因此只需要
+    # 把bar_field>0的全都设置为0即可
+    dftemp.loc[dftemp[bar_field] > 0, bar_field] = 0
+    # TODO 对最后一段进行打tag，要做一定的预测行为?绿峰一直在增长但背离的情况
+    bar_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][bar_field].abs().array  # 最后一段连续绿色区域的bar的顶点
+    val_array = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK][value_field].array
+    # # 然后找出来最大长度的区
+    bar_desc = __max_successive_series_len(bar_array, asc=False)
+    val_desc = __max_successive_series_len(val_array, asc=False)
+    cnt = min(bar_desc, val_desc) - 1  # 背离取最小
+    return max(0, cnt)  # 防止小于0
+
+
 def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar', start_time_key=None):
     """
     在一段连续的绿柱子区间，当前的波峰是第几个
     方法是：从当前时间开始找到前面第一段连续绿柱，然后计算绿柱区间有几个波峰；
     如果当前是红柱但是没超过设置的最大宽度，可以忽略这段红柱
-    :param df:
-    :param field:
-    :return:  波峰个数, 默认1
+    @param df:
+    @param bar_field:
+    @param start_time_key:
+    @return:波峰个数, 默认1
     """
     if df.shape[0] == 0:
         return 0
-    field_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
-    rg_tag_name = __ext_field(bar_field, ext=RG_AreaTagFieldNameExt.RG_TAG)
+    field_tag_name = __ext_field(bar_field, ext=RGAreaTagFieldName.BAR_WAVE_TAG_NAME)
+    rg_tag_name = __ext_field(bar_field, ext=RGAreaTagFieldName.RG_TAG_NAME)
     if start_time_key is not None:
-        dftemp = __get_real_successive_rg_area(df, rg_tag_name, start_time_key,  area=RG_AreaTag.GREEN)
+        dftemp = __get_real_successive_rg_area(df, rg_tag_name, start_time_key, area=RGAreaTagValue.GREEN)
     else:
-        dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RG_AreaTag.GREEN)  # 获得最后一段连续绿色区域
+        dftemp = __get_last_successive_rg_area(df, rg_tag_name, area=RGAreaTagValue.GREEN)  # 获得最后一段连续绿色区域
     wave_cnt = dftemp[dftemp[field_tag_name] == WaveType.GREEN_PEAK].shape[0]
     # TODO 这个地方有点问题，对于最后一段区域需要进一步处理，做一定预测。当前的GREEN_TOP在实时中不一定被打标
     return wave_cnt
@@ -521,28 +264,23 @@ def bar_green_wave_cnt(df: DataFrame, bar_field='macd_bar', start_time_key=None)
 def get_current_ma_distance(df: DataFrame):
     """
     计算(ma(5)-ma(10))/close，保留2位小数
-    :param df:
-    :return: 0.0131 ， 0.0323， 保留3位小数
+    @param df:
+    @return:0.0131 ， 0.0323， 保留3位小数
     """
     close_price = df.at[df.shape[0] - 1, 'close']
     ma_gap = df.at[df.shape[0] - 1, 'em_bar']
     return round(abs(ma_gap / close_price), 3)
 
 
-def __get_real_successive_rg_area(df: DataFrame, tag_name, start_time_key, area=RG_AreaTag.GREEN):
+def __get_real_successive_rg_area(df: DataFrame, tag_name, start_time_key, area=RGAreaTagValue.GREEN):
     """
     start_time_key是大周期的green bar开始时间，如果用在小周期上，因为小周期green bar提前于大周期，因此在
     小周期上start_time_key之前也有可能有属于小周期的连续green bar
-    Parameters
-    ----------
-    df
-    tag_name
-    start_time_key
-    area
-
-    Returns
-    -------
-
+    @param df:
+    @param tag_name:
+    @param start_time_key:
+    @param area:
+    @return:
     """
     # 找到start_time_key的index, 然后取df[:start_time_key], 找到最后一个RG_AreaTag.RED， 这一行的下一个就是连续绿色的真正起始地址
     start_time_key_idx = df[df.time_key == start_time_key].index[0]
@@ -557,13 +295,13 @@ def __get_real_successive_rg_area(df: DataFrame, tag_name, start_time_key, area=
     return dftemp
 
 
-def __get_last_successive_rg_area(df: DataFrame, rg_field_name, area=RG_AreaTag.GREEN):
+def __get_last_successive_rg_area(df: DataFrame, rg_field_name, area=RGAreaTagValue.GREEN):
     """
     获取最后一段颜色为area的连续区域
-    :param df:
-    :param rg_field_name:
-    :param area:
-    :return: df
+    @param df:
+    @param rg_field_name:
+    @param area:
+    @return:
     """
     # TODO 全红或者全绿需要处理
     if df[df[rg_field_name] != area].shape[0] == 0:
@@ -578,39 +316,42 @@ def resonance_cnt(df1: DataFrame, df2: DataFrame, field, start_time_key=None):
     """
     2个周期的共振次数
     方法是：选最后一段连续绿色区域，找出波数w1和w2,然后返会min(s1,s2)
-    :param df1:
-    :param df2:
-    :param field:
-    :return:
+    @param df1:
+    @param df2:
+    @param field:
+    @param start_time_key:
+    @return:
     """
-    rg_tag_name = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
+    rg_tag_name = __ext_field(field, ext=RGAreaTagFieldName.RG_TAG_NAME)
     if start_time_key is not None:
-        area1 = __get_real_successive_rg_area(df1, rg_tag_name, start_time_key, RG_AreaTag.GREEN)
-        area2 = __get_real_successive_rg_area(df2, rg_tag_name, start_time_key, RG_AreaTag.GREEN)
+        area1 = __get_real_successive_rg_area(df1, rg_tag_name, start_time_key, RGAreaTagValue.GREEN)
+        area2 = __get_real_successive_rg_area(df2, rg_tag_name, start_time_key, RGAreaTagValue.GREEN)
     else:
-        area1 = __get_last_successive_rg_area(df1, rg_tag_name, area=RG_AreaTag.GREEN)
-        area2 = __get_last_successive_rg_area(df2, rg_tag_name, area=RG_AreaTag.GREEN)
+        area1 = __get_last_successive_rg_area(df1, rg_tag_name, area=RGAreaTagValue.GREEN)
+        area2 = __get_last_successive_rg_area(df2, rg_tag_name, area=RGAreaTagValue.GREEN)
     wave_1 = bar_green_wave_cnt(area1, field)
     wave_2 = bar_green_wave_cnt(area2, field)
     return max(0, min(wave_1, wave_2) - 1)  # 2个波形成1个共振
 
 
-def is_macd_bar_reduce(df: DataFrame, field='macd_bar', k_period=_config.periods[0], max_reduce_bar_distance=4):
+def is_macd_bar_reduce(df: DataFrame, field='macd_bar', max_reduce_bar_distance=4, **kwargs):
     """
     macd 绿柱子第一根减少出现，不能减少太剧烈，前面的绿色柱子不能太少
     前提是：最后一段柱子必须是绿色的
-    :param df:
-    :param field:
-    :return: 减少返回True, 否则False, 第二个参数是最后一根绿色柱子出现的日期
+    @param df:
+    @param field:
+    @param k_period:
+    @param max_reduce_bar_distance:
+    @return:减少返回True, 否则False, 第二个参数是最后一根绿色柱子出现的日期
     """
-    field_rg_tag_name = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
-    field_tag = __ext_field(field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
-    last_idx = df[df[field_rg_tag_name] == RG_AreaTag.RED].tail(1).index[0]  # 最后一个红柱的index
+    field_rg_tag_name = __ext_field(field, ext=RGAreaTagFieldName.RG_TAG_NAME)
+    field_tag = __ext_field(field, ext=RGAreaTagFieldName.BAR_WAVE_TAG_NAME)
+    last_idx = df[df[field_rg_tag_name] == RGAreaTagValue.RED].tail(1).index[0]  # 最后一个红柱的index
     if last_idx + 1 == df.shape[0]:  # 红柱子是最后一个，没有出绿柱
         return False, None
     else:
         green_bar_len = df[last_idx + 1:].shape[0]
-        if green_bar_len > math.ceil(_config.periods_config[k_period]['moutain_min_width'] / 2):
+        if green_bar_len > math.ceil(kwargs['moutain_min_width'] / 2):
             cur_bar_len = df.iloc[-1][field]  # 当前计算出的长度
             pre_bar_1_len = df.iloc[-2][field]  # 理论上缩短的第一根（但是也许是最长的那一根）
             # 如果pre_bar_1是一个绿色峰顶，那么就没有必要和他左侧的继续进行比较了
@@ -634,13 +375,9 @@ def __get_last_possible_max_bar_idx(df: DataFrame, field):
     """
     一段绿色区域被打标之后，如果新增一根，那么这根由于个数不足，无法判断是不是一个最大值。
     这个函数就是要找到这样的可能最大值的点，如果没有就返回打标的最大值点
-    Parameters
-    ----------
-    df 一段连续的df
-
-    Returns
-    -------
-
+    @param df:一段连续的df
+    @param field:
+    @return:
     """
     dftemp = df.copy()
     dftemp.loc[dftemp[field] > 0, field] = 0  # 有可能是红色的区域设置为0
@@ -648,8 +385,8 @@ def __get_last_possible_max_bar_idx(df: DataFrame, field):
     # 从这里面找出来绿色峰底，然后有2种情况：1）存在；2）不存在
     # 1）存在，那么找到峰底之后的部分的最大值，然后返回
     # 2）不存在，直接找到最大值index返回
-    field_tag = __ext_field(field, ext=RG_AreaTagFieldNameExt.BAR_WAVE_TAG)
-    field_rg_tag = __ext_field(field, ext=RG_AreaTagFieldNameExt.RG_TAG)
+    field_tag = __ext_field(field, ext=RGAreaTagFieldName.BAR_WAVE_TAG_NAME)
+    field_rg_tag = __ext_field(field, ext=RGAreaTagFieldName.RG_TAG_NAME)
     df2 = dftemp[dftemp[field_rg_tag] == WaveType.GREEN_VALLEY]
     if df2.shape[0] > 0:
         peak_idx = df2.tail(1).index[0]
@@ -675,10 +412,3 @@ if __name__ == '__main__':
     # df_new = do_bar_wave_tag(df60, 'macd_bar', red_areas)
     # print(df_new.index)
 
-    code = "SH.600703"
-    df = get_df_of_code(code, "2019-09-20", "2019-10-21", KLType.K_30M)
-    df15 = __do_compute_df_bar(df)
-    ct = bottom_divergence_cnt(df15[:-4], "macd_bar", "close")
-    print(ct)
-    gct = bar_green_wave_cnt(df15[:-4])
-    print(gct)
