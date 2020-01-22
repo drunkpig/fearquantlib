@@ -5,6 +5,8 @@ from pandas import DataFrame
 from fearquantlib.utils import MA, MACD
 
 
+TIME_KEY='eob' # End Of Bar
+
 class RGAreaTagFieldName(object):
     BAR_WAVE_TAG_NAME = 'tag'
     RG_TAG_NAME = 'rg_tag'
@@ -346,7 +348,11 @@ def is_macd_bar_reduce(df: DataFrame, field='macd_bar', max_reduce_bar_distance=
     """
     field_rg_tag_name = __ext_field(field, ext=RGAreaTagFieldName.RG_TAG_NAME)
     field_tag = __ext_field(field, ext=RGAreaTagFieldName.BAR_WAVE_TAG_NAME)
-    last_idx = df[df[field_rg_tag_name] == RGAreaTagValue.RED].tail(1).index[0]  # 最后一个红柱的index
+    temp_df = df[df[field_rg_tag_name] == RGAreaTagValue.RED].tail(1)
+    if temp_df.shape[0]>0:
+        last_idx = temp_df.index[0]  # 最后一个红柱的index
+    else:
+        last_idx = -1
     if last_idx + 1 == df.shape[0]:  # 红柱子是最后一个，没有出绿柱
         return False, None
     else:
@@ -366,7 +372,7 @@ def is_macd_bar_reduce(df: DataFrame, field='macd_bar', max_reduce_bar_distance=
             is_reduce = (cur_bar_len > pre_bar_1_len and cur_bar_len > pre_bar_2_len) and \
                         (cur_bar_idx - max_bar_idx <= max_reduce_bar_distance)
             # TODO 这里还需要评估一下到底减少多少幅度/速度是最优的
-            return is_reduce, df.iloc[last_idx + 1]['time_key']
+            return is_reduce, df.iloc[cur_bar_idx][TIME_KEY]
         else:  # 最后的绿色柱子太少了
             return False, None
 

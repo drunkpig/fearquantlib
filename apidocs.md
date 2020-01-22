@@ -42,13 +42,6 @@ class KL_Period(object):
     KL_15 = "KL_15"
 
 
-K_LINE_TYPE = {
-    KL_Period.KL_60: KLType.K_60M,
-    KL_Period.KL_30: KLType.K_30M,
-    KL_Period.KL_15: KLType.K_15M,
-}
-
-
 class WaveType(object): # bar的波峰波谷定义的常量
     RED_PEAK = 2  # 红柱高峰
     RED_VALLEY = 1  # 红柱峰底
