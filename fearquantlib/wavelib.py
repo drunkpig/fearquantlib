@@ -120,7 +120,7 @@ def __do_bar_wave_tag(raw_df: DataFrame, field, successive_bar_area, moutain_min
 
                 # 在下一个阶段中评估波峰波谷的变化度（是否是深V？）
                 # 一段连续的区间里可以产生多个波峰，但是波谷可能是重合的，这就要评估是否是深V，合并波峰
-                if i != max_row_index:  # 这是为了防止边界上的是最大峰，被覆盖掉
+                if i != max_row_index:  # 这是为了防止边界上的是最大峰，被覆盖掉（例如：最后一根大绿柱子，最长）
                     df.at[i, tag_field] = WaveType.RED_VALLEY
                 if j != max_row_index:
                     df.at[j, tag_field] = WaveType.RED_VALLEY
@@ -351,12 +351,12 @@ def is_macd_bar_reduce(df: DataFrame, field='macd_bar', max_reduce_bar_distance=
     temp_df = df[df[field_rg_tag_name] == RGAreaTagValue.RED].tail(1)
     if temp_df.shape[0]>0:
         last_idx = temp_df.index[0]  # 最后一个红柱的index
-    else:
+    else:                            # 全部是绿色柱子
         last_idx = -1
     if last_idx + 1 == df.shape[0]:  # 红柱子是最后一个，没有出绿柱
         return False, None
     else:
-        green_bar_len = df[last_idx + 1:].shape[0]
+        green_bar_len = df[last_idx + 1:].shape[0]  # 最后的绿色柱子区长度
         if green_bar_len > math.ceil(kwargs['moutain_min_width'] / 2):
             cur_bar_len = df.iloc[-1][field]  # 当前计算出的长度
             pre_bar_1_len = df.iloc[-2][field]  # 理论上缩短的第一根（但是也许是最长的那一根）
